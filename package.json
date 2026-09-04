@@ -2,11 +2,15 @@
   "name": "document-scanner",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/prepare-standalone.js",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "electron:dev": "electron .",
+    "dist:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
@@ -19,8 +23,27 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "tailwindcss": "^4"
+  },
+  "build": {
+    "appId": "com.jerrynguy.document-scanner",
+    "productName": "Document Scanner",
+    "asar": true,
+    "files": ["electron/**/*"],
+    "extraResources": [{ "from": ".next/standalone", "to": "standalone", "filter": ["**/*"] }],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

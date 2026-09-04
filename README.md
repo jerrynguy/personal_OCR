@@ -75,6 +75,33 @@ Variables của project.
 > nền tảng serverless có giới hạn kích thước request (ví dụ Vercel), cân nhắc
 > giảm `MAX_SIZE_MB` trong `lib/scanner.js` nếu gặp lỗi request quá lớn.
 
+## Đóng gói thành app desktop (Windows, có icon riêng)
+
+Dành cho người dùng không quen dòng lệnh: build ra một file cài đặt `.exe`,
+cài xong có icon trên Desktop, bấm vào mở thẳng app trong cửa sổ riêng (không
+qua trình duyệt, không cần mở Terminal). Lần đầu mở app sẽ hiện màn hình nhập
+API key ngay trong app — không cần sửa file `.env` bằng Notepad.
+
+**Bắt buộc build trên máy Windows thật** — không cross-build từ Mac/Linux
+được (electron-builder cần Wine để nhúng icon vào .exe khi build từ hệ điều
+hành khác Windows). Trên Windows thì không cần Wine, tự chạy được luôn.
+
+```bash
+npm install
+npm run dist:win
+```
+
+Đợi vài phút (lần đầu sẽ tải Electron ~115MB), file cài đặt nằm ở
+`dist/Document Scanner Setup <version>.exe`. Chạy file đó để cài — trình cài
+đặt có tùy chọn tạo icon Desktop + Start Menu. Cài xong, mở app lần đầu sẽ
+hiện màn hình nhập API key.
+
+Muốn đổi key sau này: mở app → menu **Cài đặt → Đổi API key...**
+
+Nếu lúc dùng app báo lỗi `anthropic-workspace-id is required`, điền thêm ô
+**Workspace ID** ở màn hình cài đặt trong app (lấy tại Console → Settings →
+Workspaces) — không cần sửa file gì cả, app tự lưu.
+
 ## Lưu ý bảo mật
 
 - **Không commit `.env.local` lên Git** — file này đã nằm trong `.gitignore`.
@@ -84,6 +111,10 @@ Variables của project.
 - Đây là công cụ single-user, tự chạy — không có đăng nhập/phân quyền. Nếu bạn
   tự deploy một bản public cho nhiều người dùng chung, tự thêm xác thực trước
   khi làm vậy.
+- Bản app desktop (Electron): API key nhập trong app được lưu vào một file
+  `config.json` riêng trong thư mục dữ liệu ứng dụng của Windows (thường ở
+  `%APPDATA%\document-scanner\`), không phải trong thư mục cài đặt — không bị
+  ai khác đọc được trừ khi có quyền truy cập máy đó.
 
 ## Giấy phép
 
