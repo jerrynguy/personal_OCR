@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { Upload, Loader2, AlertTriangle, X, Download, FileSpreadsheet, FileText } from 'lucide-react';
+import { Upload, Loader2, AlertTriangle, X, Download, FileSpreadsheet, FileText, Crop } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import CropModal from './CropModal';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const ACCEPTED_TYPES = [...ACCEPTED_IMAGE_TYPES, 'application/pdf'];
@@ -26,6 +27,15 @@ function nextId() {
   return `f-${Date.now()}-${idCounter}`;
 }
 
+const MUC_LUC_COLUMNS = [
+  'STT',
+  'Số, ký hiệu VB',
+  'Ngày tháng văn bản',
+  'Tên loại và trích yếu nội dung',
+  'Tờ số',
+  'Ghi chú',
+];
+
 function mdTableToRows(markdown) {
   const lines = markdown.split('\n').filter((l) => l.trim().startsWith('|'));
   const rows = [];
@@ -38,7 +48,15 @@ function mdTableToRows(markdown) {
     if (cells.every((c) => /^:?-+:?$/.test(c))) continue; // dòng phân cách header
     rows.push(cells);
   }
-  return rows;
+  if (rows.length === 0) return rows;
+
+  const dataRows = rows.slice(1);
+  const normalized = dataRows.map((cells) => {
+    const padded = [...cells];
+    while (padded.length < MUC_LUC_COLUMNS.length) padded.push('');
+    return padded.slice(0, MUC_LUC_COLUMNS.length);
+  });
+  return [MUC_LUC_COLUMNS, ...normalized];
 }
 
 function rowsToCsv(rows) {
@@ -65,6 +83,7 @@ export default function MucLucPage() {
   const [status, setStatus] = useState('idle'); // idle | processing | done | error
   const [resultMarkdown, setResultMarkdown] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [croppingFileId, setCroppingFileId] = useState(null);
   const fileInputRef = useRef(null);
 
   const addFiles = useCallback((fileList) => {
@@ -114,6 +133,15 @@ export default function MucLucPage() {
     setResultMarkdown('');
     setStatus('idle');
     setErrorMsg('');
+  };
+
+  const croppingFile = files.find((f) => f.id === croppingFileId) || null;
+
+  const handleApplyCrop = ({ base64, previewUrl, mediaType }) => {
+    setFiles((prev) =>
+      prev.map((f) => (f.id === croppingFileId ? { ...f, base64, previewUrl, mediaType, cropped: true } : f))
+    );
+    setCroppingFileId(null);
   };
 
   const onDrop = useCallback(
@@ -233,7 +261,7 @@ export default function MucLucPage() {
                 <div
                   key={f.id}
                   className="relative rounded border overflow-hidden"
-                  style={{ width: 64, height: 64, borderColor: 'var(--border)' }}
+                  style={{ width: 76, height: 76, borderColor: 'var(--border)' }}
                 >
                   {f.isPdf ? (
                     <div
@@ -260,6 +288,20 @@ export default function MucLucPage() {
                   >
                     <X size={10} />
                   </button>
+                  {!f.isPdf && (
+                    <button
+                      onClick={() => setCroppingFileId(f.id)}
+                      aria-label="Cắt ảnh"
+                      title="Cắt ảnh"
+                      className="absolute bottom-0.5 right-0.5 rounded-full p-0.5"
+                      style={{
+                        background: f.cropped ? 'var(--accent)' : 'rgba(18,20,26,0.75)',
+                        color: f.cropped ? 'var(--background)' : 'var(--foreground)',
+                      }}
+                    >
+                      <Crop size={10} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -324,6 +366,10 @@ export default function MucLucPage() {
           </div>
         )}
       </div>
+
+      {croppingFile && (
+        <CropModal file={croppingFile} onCancel={() => setCroppingFileId(null)} onApply={handleApplyCrop} />
+      )}
     </div>
   );
 }
