@@ -14,8 +14,8 @@ Máy mục tiêu: HP ZBook Firefly G8 (i7-1185G7, 32GB RAM, Intel Iris Xe, Windo
 |---|---|---|
 | **1** | Môi trường Python, tách PDF thành ảnh, OCR tiếng Việt offline (PaddleOCR + VietOCR) | ✅ xong (tinh chỉnh thêm khi có tài liệu thật) |
 | **2** | llama.cpp + LLM offline, đo tốc độ, LLM trả JSON theo schema | ✅ xong (gpt-oss-20b: 8/8 trường) |
-| **3** | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | ⏳ đang làm |
-| 4 | Pipeline đầy đủ + SQLite + xuất Excel (chạy bằng dòng lệnh) | |
+| **3** | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | ✅ xong (16/16 trường trên ZBook) |
+| **4** | Lưu SQLite + xuất Excel / CSV + tách PDF từng tài liệu (chạy bằng dòng lệnh) | ⏳ đang làm |
 | 5 | Backend FastAPI | |
 | 6 | Giao diện React (Phông/Hồ sơ, tải PDF, hàng đợi, màn soát, xuất file) | |
 | 7 | Electron + đóng gói bộ cài Windows | |
@@ -37,7 +37,9 @@ sohoa-luutru/
 │  │  ├─ tt05.py            đọc schema
 │  │  ├─ rules.py           luật: số, ký hiệu, ngày, tên loại, cơ quan, độ mật/khẩn, tờ số
 │  │  ├─ segment.py         tách PDF nhiều trang thành từng văn bản
-│  │  └─ extract.py         luật + LLM -> bản ghi TT05, đối chiếu, tính dữ liệu hồ sơ
+│  │  ├─ extract.py         luật + LLM -> bản ghi TT05, đối chiếu, tính dữ liệu hồ sơ
+│  │  ├─ db.py              lưu Phông / Hồ sơ / Tài liệu vào SQLite (data/sohoa.db)
+│  │  └─ export.py          xuất Excel / CSV, tách PDF thành từng tài liệu
 │  │  └─ vietocr_configs/   config VietOCR (bản sao, để không phải tải qua mạng)
 │  └─ scripts/
 │     ├─ download_models.py   tải model (1 lần, cần mạng)
@@ -47,7 +49,8 @@ sohoa-luutru/
 │     ├─ download_llama_cpp.py  tải llama.cpp (llama-server) bản Windows
 │     ├─ download_llm.py        tìm / tải / chọn model GGUF
 │     ├─ step2_llm_test.py      kiểm tra LLM: tốc độ + trích xuất thử
-│     └─ step3_extract_pdf.py   PDF -> từng văn bản -> trường TT05
+│     ├─ step3_extract_pdf.py   PDF -> từng văn bản -> trường TT05
+│     └─ step4_export.py        lưu CSDL + xuất Excel / CSV / PDF từng tài liệu
 ├─ models/   (tự tạo, không commit)  model OCR + LLM
 └─ data/     (tự tạo, không commit)  ảnh, kết quả — có thể chứa tài liệu mật
 ```
@@ -263,3 +266,33 @@ Kết quả đầy đủ: `data\step3\<tên file>\ket_qua.json`.
 
 1. PDF mẫu: tách đúng 2 văn bản, chấm điểm 16/16 (hoặc chỉ lệch nhẹ ở trích yếu/cơ quan).
 2. Ghi lại thời gian mỗi văn bản.
+
+**Kết quả trên ZBook** (OCR thật + gpt-oss-20b): **16/16 trường**, tách đúng 2 văn bản. OCR ~6s/trang,
+LLM ~30–60s/văn bản. LLM đọc nhầm tên loại văn bản 2 thành "Quyết định" (vì nội dung có nhắc
+Quyết định 125) — luật đọc đúng "Công văn", giá trị luật được giữ và ghi vào "Cần kiểm tra".
+
+---
+
+## Bước 4 — Lưu CSDL, xuất Excel / CSV, tách PDF từng tài liệu
+
+```powershell
+python scripts\step4_export.py ..\data\samples\mau_ho_so.pdf
+python scripts\step4_export.py --danh-sach
+```
+
+Dùng kết quả `ket_qua.json` của Bước 3 (không chạy lại OCR/LLM), rồi:
+
+1. **Lưu vào SQLite** `data\sohoa.db` (bảng phong / ho_so / tai_lieu). Lưu lại cùng mã hồ sơ sẽ ghi đè.
+2. **Xuất** vào `data\xuat\<mã hồ sơ>\`:
+   - `<mã hồ sơ>.xlsx` — 4 sheet: **Phông**, **Hồ sơ** (tên trường | giá trị), **Tài liệu** (mỗi tài liệu
+     một dòng, 23 cột theo Điều 4 + 8 cột bổ sung nền xám, ô "Cần kiểm tra" tô vàng, có lọc/cố định
+     tiêu đề), **Mục lục văn bản** (STT | Số, ký hiệu | Ngày tháng | Tên loại và trích yếu | Tờ số | Ghi chú)
+   - `csv\` — cùng nội dung, mỗi sheet một file CSV (UTF-8 có BOM, Excel mở đúng tiếng Việt)
+   - `tai_lieu\<mã lưu trữ>.pdf` — PDF hồ sơ tách thành từng tài liệu (cột "Tệp tin tài liệu")
+
+Cần cài thêm thư viện Excel: `pip install -r requirements.txt` (thêm `openpyxl`).
+
+### ✅ Bước 4 coi là xong khi
+
+1. Mở được file `.xlsx` bằng Excel, tiếng Việt hiển thị đúng, đủ 4 sheet.
+2. Thư mục `tai_lieu\` có 2 file PDF (2 trang và 1 trang).

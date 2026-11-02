@@ -16,6 +16,7 @@ from app.ocr import lines_to_text
 from app.rules import (
     DO_KHAN,
     DO_MAT,
+    TEN_LOAI,
     find_co_quan_raw,
     find_flag,
     find_ngay,
@@ -66,7 +67,8 @@ LLM_SYSTEM = (
     "tên riêng theo quy tắc chính tả (ví dụ: Ủy ban nhân dân tỉnh An Bình).\n"
     "- trich_yeu_noi_dung: trích yếu ngay dưới tên loại (hoặc dòng 'V/v'), sửa lỗi chính tả, "
     "viết đầy đủ từ viết tắt (giữ nguyên 'V/v').\n"
-    "- tu_khoa: 3–5 từ khóa ngắn về nội dung chính.\n"
+    "- tu_khoa: 3–5 từ khóa ngắn về VẤN ĐỀ mà văn bản đề cập, lấy từ chính văn bản. KHÔNG dùng "
+    "tên loại văn bản, tên cơ quan, địa danh, tên người làm từ khóa.\n"
     "- nguoi_ky, chuc_vu_nguoi_ky: ở phần chữ ký cuối văn bản.\n"
     "Không đoán: trường nào không có trong văn bản thì để chuỗi rỗng."
 )
@@ -134,7 +136,10 @@ def merge(rule: dict, llm: dict | None) -> tuple[dict, dict, list[str]]:
         out["co_quan_ban_hanh"], src["co_quan_ban_hanh"] = rule["_co_quan_tho"], "luật (chưa chuẩn hóa)"
     if not out["trich_yeu_noi_dung"]:
         warn.append("Không có trích yếu nội dung")
-    out["tu_khoa"] = "; ".join(k.strip() for k in llm.get("tu_khoa", []) if k.strip())
+    loai = {key_text(t) for t in TEN_LOAI}
+    out["tu_khoa"] = "; ".join(
+        k.strip() for k in llm.get("tu_khoa", []) if k.strip() and key_text(k) not in loai
+    )
     src["tu_khoa"] = "LLM" if out["tu_khoa"] else ""
 
     for key in ("do_mat", "do_khan", "to_so"):

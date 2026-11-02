@@ -15,3 +15,6 @@ gdown
 # LƯU Ý: bản thân VietOCR phải cài RIÊNG, không kèm thư viện phụ (vì nó ghim các bản
 # pillow/numpy rất cũ, sẽ làm hỏng môi trường):
 #     pip install --no-deps vietocr==0.3.13
+
+# Bước 4 — xuất Excel
+openpyxl==3.1.5
