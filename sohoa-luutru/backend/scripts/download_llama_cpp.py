@@ -28,30 +28,54 @@ ASSET_PATTERNS = {
     "cpu": r"bin-win-cpu-x64\.zip$",
     "vulkan": r"bin-win-vulkan-x64\.zip$",
 }
+# Bản CPU: không được chứa tên các backend GPU / kiến trúc khác.
+NOT_CPU = ("cuda", "cudart", "vulkan", "hip", "radeon", "sycl", "opencl", "kompute", "openvino", "arm64")
+
+
+def pick_asset(assets: list[dict], variant: str) -> dict | None:
+    """Chọn file zip Windows x64 đúng loại. Thử tên chuẩn trước, sau đó nhận dạng linh hoạt."""
+    for a in assets:
+        if re.search(ASSET_PATTERNS[variant], a["name"]):
+            return a
+    for a in assets:
+        n = a["name"].lower()
+        if not (n.endswith(".zip") and "win" in n and ("x64" in n or "amd64" in n)):
+            continue
+        if variant == "cpu" and not any(k in n for k in NOT_CPU):
+            return a
+        if variant == "vulkan" and "vulkan" in n:
+            return a
+    return None
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--variant", choices=list(ASSET_PATTERNS), default="cpu")
-    parser.add_argument("--tag", help="Ví dụ b6500. Mặc định: bản mới nhất")
+    parser.add_argument("--tag", help="Ví dụ b6500. Mặc định: bản mới nhất có file Windows")
     args = parser.parse_args()
 
-    api = f"https://api.github.com/repos/{REPO}/releases/" + (
-        f"tags/{args.tag}" if args.tag else "latest"
-    )
-    print(f"Đang hỏi GitHub: {api}")
-    release = requests.get(api, timeout=30).json()
-    if "assets" not in release:
-        print(f"Không đọc được thông tin phiên bản: {release.get('message', release)}")
+    base = f"https://api.github.com/repos/{REPO}/releases"
+    url = f"{base}/tags/{args.tag}" if args.tag else f"{base}?per_page=30"
+    print(f"Đang hỏi GitHub: {url}")
+    data = requests.get(url, timeout=30).json()
+    if isinstance(data, dict) and "assets" not in data:
+        print(f"Không đọc được thông tin phiên bản: {data.get('message', data)}")
         return 1
+    releases = [data] if isinstance(data, dict) else [r for r in data if not r.get("draft")]
 
-    tag = release["tag_name"]
-    assets = [a for a in release["assets"] if re.search(ASSET_PATTERNS[args.variant], a["name"])]
-    if not assets:
-        names = [a["name"] for a in release["assets"] if "win" in a["name"]]
-        print(f"Không thấy file '{args.variant}' trong {tag}. Các file Windows có:\n  " + "\n  ".join(names))
+    # "Bản mới nhất" theo GitHub có thể không kèm file Windows -> lấy bản gần nhất có file đúng loại.
+    tag, asset = None, None
+    for rel in releases:
+        asset = pick_asset(rel.get("assets", []), args.variant)
+        if asset:
+            tag = rel["tag_name"]
+            break
+    if not asset:
+        print(f"Không thấy file Windows '{args.variant}' trong {len(releases)} bản gần nhất. Danh sách:")
+        for rel in releases[:5]:
+            names = ", ".join(a["name"] for a in rel.get("assets", [])) or "(không có file)"
+            print(f"  {rel['tag_name']}: {names[:400]}")
         return 1
-    asset = assets[0]
 
     dest = LLAMA_CPP_DIR / args.variant
     zip_path = LLAMA_CPP_DIR / asset["name"]
