@@ -1,0 +1,5 @@
+# Bước 1 — OCR offline
+# Ghim đúng phiên bản đã kiểm tra. paddlepaddle 3.2.x là bản CPU (máy không có card NVIDIA).
+paddlepaddle==3.2.2
+paddleocr==3.7.0
+pymupdf==1.26.7

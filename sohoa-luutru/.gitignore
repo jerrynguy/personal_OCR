@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Model (rất nặng, không đưa lên Git)
+models/
+
+# Dữ liệu tài liệu — có thể chứa tài liệu mật, TUYỆT ĐỐI không commit
+data/
+
+# Node / Electron (dùng ở các bước sau)
+node_modules/
+out/
+dist/
+.next/
