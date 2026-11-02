@@ -37,9 +37,20 @@ VIETOCR_MODELS = {
     "vgg_transformer": ("vgg-transformer.yml", "vgg_transformer.pth"),
 }
 VIETOCR_WEIGHTS_URL = "https://vocr.vn/data/vietocr/{}"
-DEFAULT_REC_MODEL = "vgg_seq2seq"
+# Chốt sau bench (PDF mẫu): transformer + cắt dòng CER 0.34% (~11s/trang),
+# seq2seq + cắt dòng CER 0.86% (~4s/trang). OCR không phải nút thắt (LLM chậm hơn nhiều)
+# nên ưu tiên độ chính xác.
+DEFAULT_REC_MODEL = "vgg_transformer"
 # Dòng rộng hơn N lần chiều cao sẽ được cắt tại khoảng trắng giữa các từ trước khi đọc.
 DEFAULT_SPLIT_RATIO = 12.0
+
+
+# ---------------------------------------------------------------- LLM (llama.cpp)
+LLAMA_CPP_DIR = MODELS_DIR / "llama.cpp"  # chứa các bản build: cpu/, vulkan/
+LLM_DIR = MODELS_DIR / "llm"  # chứa file .gguf
+ACTIVE_LLM_FILE = LLM_DIR / "active.json"  # model đang dùng: {"path": "...gguf"}
+LLM_CTX = 8192  # độ dài ngữ cảnh (token): đủ cho văn bản vài trang + schema
+LOGS_DIR = DATA_DIR / "logs"
 
 
 def paddle_model_dir(name: str) -> Path:

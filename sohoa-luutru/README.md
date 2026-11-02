@@ -12,8 +12,8 @@ Máy mục tiêu: HP ZBook Firefly G8 (i7-1185G7, 32GB RAM, Intel Iris Xe, Windo
 
 | Bước | Nội dung | Trạng thái |
 |---|---|---|
-| **1** | Môi trường Python, tách PDF thành ảnh, OCR tiếng Việt offline (PaddleOCR + VietOCR) | ⏳ đang làm |
-| 2 | llama.cpp + Gemma 4 26B-A4B, đo tốc độ, LLM trả JSON theo schema | |
+| **1** | Môi trường Python, tách PDF thành ảnh, OCR tiếng Việt offline (PaddleOCR + VietOCR) | ✅ xong (tinh chỉnh thêm khi có tài liệu thật) |
+| **2** | llama.cpp + Gemma 4 26B-A4B, đo tốc độ, LLM trả JSON theo schema | ⏳ đang làm |
 | 3 | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | |
 | 4 | Pipeline đầy đủ + SQLite + xuất Excel (chạy bằng dòng lệnh) | |
 | 5 | Backend FastAPI | |
@@ -32,12 +32,16 @@ sohoa-luutru/
 │  │  ├─ ocr.py             xoay trang + tìm vùng chữ (PaddleOCR) + đọc chữ (VietOCR)
 │  │  ├─ vietocr_rec.py     bọc VietOCR chạy offline
 │  │  ├─ metrics.py         tính tỉ lệ lỗi ký tự (CER) so với đáp án
+│  │  └─ llm.py             bật/tắt llama-server, gọi LLM ép JSON schema
 │  │  └─ vietocr_configs/   config VietOCR (bản sao, để không phải tải qua mạng)
 │  └─ scripts/
 │     ├─ download_models.py   tải model (1 lần, cần mạng)
 │     ├─ make_sample_pdf.py   tạo PDF scan mẫu (nội dung giả)
 │     ├─ step1_ocr_pdf.py     OCR cả file PDF
-│     └─ bench_ocr.py         so sánh các cấu hình OCR trên 1 trang
+│     ├─ bench_ocr.py         so sánh các cấu hình OCR trên 1 trang
+│     ├─ download_llama_cpp.py  tải llama.cpp (llama-server) bản Windows
+│     ├─ download_llm.py        tìm / tải / chọn model GGUF
+│     └─ step2_llm_test.py      kiểm tra LLM: tốc độ + trích xuất thử
 ├─ models/   (tự tạo, không commit)  model OCR + LLM
 └─ data/     (tự tạo, không commit)  ảnh, kết quả — có thể chứa tài liệu mật
 ```
@@ -129,3 +133,75 @@ theo bố cục, 2 cột tiêu đề cách nhau bằng `|`), `.ocr.json` (toạ 
 | `No module named 'vietocr'` | Chạy `pip install --no-deps vietocr==0.3.13` |
 | Lỗi oneDNN / `mkldnn` | Thêm `--no-mkldnn` |
 | Chạy chậm | Thử `--det-side 1280` hoặc `--threads 8` |
+
+**Cấu hình đã chốt** (bench trên PDF mẫu): `PP-OCRv5_mobile_det` @1920px + VietOCR
+`vgg_transformer` + cắt dòng dài → CER 0.34%, ~11 giây/trang. Chế độ nhanh:
+`--rec vgg_seq2seq` (CER 0.86%, ~4 giây/trang).
+
+---
+
+## Bước 2 — LLM offline (llama.cpp + Gemma 4)
+
+LLM chạy bằng **llama.cpp** (`llama-server.exe`), chỉ nghe trên `127.0.0.1` với khóa API
+ngẫu nhiên mỗi lần chạy. Output bị **ép đúng JSON schema** (llama.cpp chuyển schema thành
+grammar) nên model không thể trả sai cấu trúc.
+
+Model mặc định: **Gemma 4 26B-A4B, bản Q4 QAT** (~15–18 GB). Là MoE: mỗi token chỉ chạy
+~4B tham số nên chạy được trên CPU; bản QAT ít mất chất lượng khi nén Q4.
+
+> **RAM:** model chiếm ~16–18 GB. Tắt các app nặng khác trước khi chạy — đặc biệt **tắt app
+> Magnitude** nếu nó đang giữ model trong RAM, nếu không sẽ thiếu RAM.
+
+### 2.1 Tải llama.cpp (cần mạng, một lần)
+
+```powershell
+python scripts\download_llama_cpp.py
+```
+
+Kết quả mong đợi: `[OK] ...\models\llama.cpp\cpu\llama-server.exe` và dòng `version: ...`.
+
+### 2.2 Chọn model
+
+**Cách A — dùng file GGUF đã có sẵn** (ví dụ app Magnitude đã tải). Tìm file trên máy:
+
+```powershell
+Get-ChildItem -Path C:\Users, D:\ -Recurse -Filter *.gguf -ErrorAction SilentlyContinue | Select-Object FullName, @{n='GB';e={[math]::Round($_.Length/1GB,1)}}
+```
+
+Rồi chọn file đó (không sao chép, không tốn thêm ổ cứng):
+
+```powershell
+python scripts\download_llm.py --use "C:\duong\dan\gemma-4-26b-a4b-....gguf"
+```
+
+**Cách B — tải từ Hugging Face** (cần mạng, ~15–18 GB):
+
+```powershell
+python scripts\download_llm.py --search "gemma-4-26B-A4B"
+python scripts\download_llm.py --repo <tên repo> --file <tên file .gguf>
+```
+
+Ưu tiên file **Q4 có chữ QAT**, sau đó Q4_K_M. Repo có nhãn `[CẦN ĐĂNG NHẬP...]` thì chọn repo khác.
+
+### 2.3 Kiểm tra
+
+```powershell
+python scripts\step2_llm_test.py
+```
+
+- **Test 1:** trả lời 1 câu ngắn → đo tốc độ sinh chữ (token/s).
+- **Test 2:** đưa văn bản OCR của Quyết định mẫu cho LLM trích xuất 8 trường (số/ký hiệu,
+  ngày, tên loại, trích yếu, cơ quan ban hành, người ký, chức vụ, độ mật) → tự chấm đúng/sai,
+  in tốc độ đọc prompt và sinh chữ.
+
+Thử với văn bản OCR thật: `python scripts\step2_llm_test.py --text-file ..\data\step1\<tên>\page_001.txt`
+
+Thử GPU Iris Xe (không bắt buộc): `python scripts\download_llama_cpp.py --variant vulkan` rồi
+`python scripts\step2_llm_test.py --variant vulkan --ngl 99`
+
+### ✅ Bước 2 coi là xong khi
+
+1. Test 2 đúng ít nhất 7/8 trường.
+2. Ghi lại: thời gian nạp model, token/s đọc prompt, token/s sinh chữ, tổng thời gian Test 2.
+
+Nếu lỗi, log đầy đủ của llama-server nằm ở `sohoa-luutru\data\logs\llama-server.log`.
