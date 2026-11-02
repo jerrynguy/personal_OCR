@@ -13,7 +13,7 @@ Máy mục tiêu: HP ZBook Firefly G8 (i7-1185G7, 32GB RAM, Intel Iris Xe, Windo
 | Bước | Nội dung | Trạng thái |
 |---|---|---|
 | **1** | Môi trường Python, tách PDF thành ảnh, OCR tiếng Việt offline (PaddleOCR + VietOCR) | ✅ xong (tinh chỉnh thêm khi có tài liệu thật) |
-| **2** | llama.cpp + Gemma 4 26B-A4B, đo tốc độ, LLM trả JSON theo schema | ⏳ đang làm |
+| **2** | llama.cpp + LLM offline, đo tốc độ, LLM trả JSON theo schema | ✅ xong (gpt-oss-20b: 8/8 trường) |
 | 3 | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | |
 | 4 | Pipeline đầy đủ + SQLite + xuất Excel (chạy bằng dòng lệnh) | |
 | 5 | Backend FastAPI | |
@@ -205,3 +205,8 @@ Thử GPU Iris Xe (không bắt buộc): `python scripts\download_llama_cpp.py -
 2. Ghi lại: thời gian nạp model, token/s đọc prompt, token/s sinh chữ, tổng thời gian Test 2.
 
 Nếu lỗi, log đầy đủ của llama-server nằm ở `sohoa-luutru\data\logs\llama-server.log`.
+
+**Kết quả trên ZBook** (llama.cpp b12034, bản CPU, `gpt-oss-20b-MXFP4` 12.1 GB):
+nạp model 14–30s; Test 2 đúng **8/8 trường** trong 45.9s — đọc prompt 631 token @ 22.1 token/s
+(~28s, phần chậm nhất), sinh 150 token @ 8.6 token/s (~17s). Gemma 4 26B-A4B sẽ so sánh sau
+với cùng bài test.
