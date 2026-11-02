@@ -1,9 +1,11 @@
 """Tạo một PDF "scan" mẫu (nội dung giả) để thử pipeline mà chưa cần dùng tài liệu thật.
 
     python scripts/make_sample_pdf.py
-    -> data/samples/mau_ho_so.pdf  (3 trang ảnh, trang 3 bị lật ngược để thử tự xoay)
+    -> data/samples/mau_ho_so.pdf         (3 trang ảnh, trang 3 bị lật ngược để thử tự xoay)
+    -> data/samples/mau_ho_so.truth.json  (đáp án để tính tỉ lệ lỗi OCR)
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -104,6 +106,15 @@ def main() -> None:
 
     out_path = out_dir / "mau_ho_so.pdf"
     scan_doc.save(out_path, deflate=True)
+
+    # 3) Đáp án: chữ của từng trang, xếp từ trên xuống, trái sang phải
+    truth = [
+        " ".join(text for _x, _y, *_rest, text in sorted(items, key=lambda it: (it[1], it[0])))
+        for items in PAGES
+    ]
+    out_path.with_suffix(".truth.json").write_text(
+        json.dumps({"pages": truth}, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"Đã tạo: {out_path}  ({scan_doc.page_count} trang, font: {Path(regular).name})")
 
 

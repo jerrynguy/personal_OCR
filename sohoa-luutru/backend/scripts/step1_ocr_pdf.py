@@ -25,6 +25,7 @@ from app.config import (  # noqa: E402
     DET_MODELS,
     VIETOCR_MODELS,
 )
+from app.metrics import cer, load_truth, word_diffs  # noqa: E402
 from app.ocr import OcrEngine, lines_to_text  # noqa: E402
 from app.pdf_render import render_pdf  # noqa: E402
 
@@ -42,6 +43,7 @@ def main() -> int:
     parser.add_argument("--threads", type=int, help="Số luồng CPU (mặc định: số nhân thật)")
     parser.add_argument("--no-mkldnn", action="store_true", help="Tắt tăng tốc oneDNN của Paddle")
     parser.add_argument("--no-orientation", action="store_true", help="Tắt tự xoay trang")
+    parser.add_argument("--no-split", action="store_true", help="Không cắt dòng dài trước khi đọc")
     parser.add_argument("--out", type=Path, default=DATA_DIR / "step1")
     args = parser.parse_args()
 
@@ -62,7 +64,9 @@ def main() -> int:
         use_doc_orientation=not args.no_orientation,
         threads=args.threads,
         mkldnn=not args.no_mkldnn,
+        **({"split_ratio": None} if args.no_split else {}),
     )
+    truth_pages = load_truth(args.pdf)
     t_load = time.perf_counter() - t0
     print(f"Nạp model ({engine.description}): {t_load:.1f}s\n")
 
@@ -95,6 +99,13 @@ def main() -> int:
         print(text)
         for l in low[:5]:
             print(f"   ? ({l.score:.2f}) {l.text}")
+        page_no = int(img.stem.split("_")[1])
+        err = None
+        if truth_pages and page_no <= len(truth_pages):
+            err = cer(text, truth_pages[page_no - 1])
+            print(f"   Tỉ lệ lỗi ký tự so với đáp án: {err:.2%}")
+            for d in word_diffs(text, truth_pages[page_no - 1], limit=5):
+                print(f"   sai: {d}")
         print()
 
         summary["pages"].append(
@@ -106,6 +117,7 @@ def main() -> int:
                 "avg_score": round(avg, 4),
                 "low_score_lines": len(low),
                 "rotated_angle": page.rotated_angle,
+                "cer": None if err is None else round(err, 4),
             }
         )
 

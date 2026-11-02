@@ -19,6 +19,7 @@ from app.config import (
     DEFAULT_DET_MODEL,
     DEFAULT_DET_SIDE,
     DEFAULT_REC_MODEL,
+    DEFAULT_SPLIT_RATIO,
     DOC_ORI_MODEL,
     default_threads,
     paddle_model_dir,
@@ -91,6 +92,49 @@ def crop_line(img_bgr: np.ndarray, poly, pad_y: float = 0.15, pad_x: float = 0.3
     return Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
 
 
+def split_wide(
+    img: Image.Image, max_ratio: float | None, min_gap: float = 0.12
+) -> list[Image.Image]:
+    """Cắt dòng quá dài thành nhiều đoạn, CHỈ cắt tại khoảng trắng giữa các từ.
+
+    VietOCR được huấn luyện với ảnh dòng rộng tối đa ~16 lần chiều cao; dòng dài hơn
+    sẽ bị đọc sót chữ ở giữa/cuối. Mỗi đoạn sau khi cắt rộng <= max_ratio * chiều cao.
+    """
+    if not max_ratio:
+        return [img]
+    w, h = img.size
+    max_w = int(h * max_ratio)
+    if w <= max_w:
+        return [img]
+
+    gray = np.asarray(img.convert("L"))
+    _, ink = cv2.threshold(gray, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    blank = ink.sum(axis=0) <= max(1, int(h * 0.02))
+
+    # Khoảng trắng đủ rộng (khoảng cách giữa 2 từ, không phải giữa 2 chữ cái) -> điểm cắt ở giữa.
+    gaps, i = [], 0
+    while i < w:
+        if blank[i]:
+            j = i
+            while j < w and blank[j]:
+                j += 1
+            if j - i >= min_gap * h and i > 0 and j < w:
+                gaps.append((i + j) // 2)
+            i = j
+        else:
+            i += 1
+
+    cuts, start = [], 0
+    while w - start > max_w:
+        candidates = [g for g in gaps if start + 2 * h < g <= start + max_w]
+        if not candidates:
+            break  # không có khoảng trắng phù hợp -> để nguyên, không cắt giữa chữ
+        cuts.append(max(candidates))
+        start = cuts[-1]
+    bounds = [0, *cuts, w]
+    return [img.crop((a, 0, b, h)) for a, b in zip(bounds, bounds[1:])]
+
+
 class OcrEngine:
     def __init__(
         self,
@@ -100,6 +144,7 @@ class OcrEngine:
         use_doc_orientation: bool = True,
         threads: int | None = None,
         mkldnn: bool = True,
+        split_ratio: float | None = DEFAULT_SPLIT_RATIO,
     ):
         needed = [det_model] + ([DOC_ORI_MODEL] if use_doc_orientation else [])
         missing = [n for n in needed if not paddle_model_dir(n).exists()]
@@ -129,7 +174,9 @@ class OcrEngine:
             **common,
         )
         self._rec = VietOcrRecognizer(rec_model, threads=threads)
-        self.description = f"{det_model} @{det_side}px + VietOCR {rec_model}, {threads} luồng"
+        self._split_ratio = split_ratio
+        split = f"cắt dòng >{split_ratio:g}x" if split_ratio else "không cắt dòng"
+        self.description = f"{det_model} @{det_side}px + VietOCR {rec_model}, {split}, {threads} luồng"
 
     def run(self, image_path: Path) -> OcrPage:
         timings = {}
@@ -154,13 +201,22 @@ class OcrEngine:
         timings["det"] = round(time.perf_counter() - t0, 2)
 
         t0 = time.perf_counter()
-        crops = [crop_line(img, p) for p in polys]
-        results = self._rec.recognize(crops)
+        pieces, owner = [], []
+        for idx, poly in enumerate(polys):
+            for piece in split_wide(crop_line(img, poly), self._split_ratio):
+                pieces.append(piece)
+                owner.append(idx)
+        texts: list[list[str]] = [[] for _ in polys]
+        probs: list[list[float]] = [[] for _ in polys]
+        for idx, (t, p) in zip(owner, self._rec.recognize(pieces)):
+            texts[idx].append(t.strip())
+            probs[idx].append(p)
         timings["rec"] = round(time.perf_counter() - t0, 2)
 
         lines = []
-        for poly, (text, prob) in zip(polys, results):
-            text = text.strip()
+        for poly, parts, part_probs in zip(polys, texts, probs):
+            text = " ".join(t for t in parts if t)
+            prob = min(part_probs) if part_probs else 0.0  # đoạn yếu nhất quyết định điểm
             if not text:
                 continue
             xs, ys = poly[:, 0], poly[:, 1]

@@ -38,6 +38,8 @@ VIETOCR_MODELS = {
 }
 VIETOCR_WEIGHTS_URL = "https://vocr.vn/data/vietocr/{}"
 DEFAULT_REC_MODEL = "vgg_seq2seq"
+# Dòng rộng hơn N lần chiều cao sẽ được cắt tại khoảng trắng giữa các từ trước khi đọc.
+DEFAULT_SPLIT_RATIO = 12.0
 
 
 def paddle_model_dir(name: str) -> Path:

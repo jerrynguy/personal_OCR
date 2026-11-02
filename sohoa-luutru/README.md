@@ -31,6 +31,7 @@ sohoa-luutru/
 │  │  ├─ pdf_render.py      PDF -> ảnh PNG từng trang
 │  │  ├─ ocr.py             xoay trang + tìm vùng chữ (PaddleOCR) + đọc chữ (VietOCR)
 │  │  ├─ vietocr_rec.py     bọc VietOCR chạy offline
+│  │  ├─ metrics.py         tính tỉ lệ lỗi ký tự (CER) so với đáp án
 │  │  └─ vietocr_configs/   config VietOCR (bản sao, để không phải tải qua mạng)
 │  └─ scripts/
 │     ├─ download_models.py   tải model (1 lần, cần mạng)
@@ -91,7 +92,12 @@ python scripts\make_sample_pdf.py
 python scripts\bench_ocr.py ..\data\samples\mau_ho_so.pdf --page 1
 ```
 
-Chạy 4 cấu hình, in thời gian + văn bản của từng cấu hình và bảng tóm tắt cuối cùng.
+Chạy 4 cấu hình (seq2seq / transformer, có / không cắt dòng dài), in thời gian và
+**tỉ lệ lỗi ký tự (CER)** so với đáp án có sẵn của PDF mẫu, kèm các từ bị đọc sai.
+
+> **Cắt dòng dài:** VietOCR được huấn luyện với ảnh dòng rộng tối đa ~16 lần chiều cao;
+> dòng dài cả trang sẽ bị đọc sót chữ. App cắt các dòng rộng hơn 12 lần chiều cao tại
+> khoảng trắng giữa các từ (không bao giờ cắt giữa chữ), đọc từng đoạn rồi ghép lại.
 Nên chạy thêm với 1 trang của PDF thật: `python scripts\bench_ocr.py "D:\...\ho_so.pdf" --page 1`
 
 ### 1.5 OCR cả file PDF
@@ -101,8 +107,8 @@ python scripts\step1_ocr_pdf.py ..\data\samples\mau_ho_so.pdf
 python scripts\step1_ocr_pdf.py "D:\duong\dan\ho_so.pdf" --pages 1-5
 ```
 
-Tuỳ chọn: `--det PP-OCRv6_medium_det`, `--det-side 1280`, `--rec vgg_transformer`,
-`--threads 8`, `--no-mkldnn`, `--no-orientation`.
+Tuỳ chọn: `--rec vgg_transformer`, `--no-split` (không cắt dòng dài), `--det-side 1280`,
+`--threads 8`, `--no-mkldnn`, `--no-orientation`. Với PDF mẫu, mỗi trang in thêm tỉ lệ lỗi.
 
 Kết quả nằm ở `sohoa-luutru\data\step1\<tên file>\`: ảnh từng trang, `.txt` (văn bản
 theo bố cục, 2 cột tiêu đề cách nhau bằng `|`), `.ocr.json` (toạ độ từng dòng), và
