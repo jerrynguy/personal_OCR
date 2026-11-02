@@ -112,8 +112,44 @@ def main() -> None:
         " ".join(text for _x, _y, *_rest, text in sorted(items, key=lambda it: (it[1], it[0])))
         for items in PAGES
     ]
+    documents = [  # đáp án trích xuất cho Bước 3
+        {
+            "trang_pdf": "1-2",
+            "ten_loai_tai_lieu": "Quyết định",
+            "so_cua_tai_lieu": "125",
+            "ky_hieu_cua_tai_lieu": "QĐ-UBND",
+            "ngay_ban_hanh": "15/03/2025",
+            "co_quan_ban_hanh": "Ủy ban nhân dân tỉnh An Bình",
+            "trich_yeu_noi_dung": "Về việc thành lập Tổ công tác số hóa tài liệu lưu trữ",
+            "nguoi_ky": "Nguyễn Văn An",
+        },
+        {
+            "trang_pdf": "3",
+            "ten_loai_tai_lieu": "Công văn",
+            "so_cua_tai_lieu": "47",
+            "ky_hieu_cua_tai_lieu": "SNV-VTLT",
+            "ngay_ban_hanh": "02/04/2025",
+            "co_quan_ban_hanh": "Sở Nội vụ tỉnh An Bình",
+            "trich_yeu_noi_dung": "V/v hướng dẫn chỉnh lý tài liệu",
+            "nguoi_ky": "Trần Thị Bình",
+        },
+    ]
     out_path.with_suffix(".truth.json").write_text(
-        json.dumps({"pages": truth}, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps({"pages": truth, "documents": documents}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    # 4) Thông tin nhập tay của phông / hồ sơ (ví dụ) cho Bước 3
+    ho_so_info = {
+        "phong": {"ma_phong": "H01", "ten_phong": "Ủy ban nhân dân tỉnh An Bình", "trang_thai": "Mở"},
+        "ho_so": {
+            "ma_ho_so": "H01.2025.01.15",
+            "tieu_de_ho_so": "Hồ sơ về công tác số hóa tài liệu lưu trữ năm 2025",
+            "thoi_han_luu_tru": "Vĩnh viễn",
+            "muc_do_tiep_can": "Mở",
+        },
+    }
+    out_path.with_suffix(".ho_so.json").write_text(
+        json.dumps(ho_so_info, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(f"Đã tạo: {out_path}  ({scan_doc.page_count} trang, font: {Path(regular).name})")
 

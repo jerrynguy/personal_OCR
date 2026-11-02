@@ -62,6 +62,11 @@ class OcrPage:
         d["text"] = lines_to_text(self.lines)
         return d
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "OcrPage":
+        lines = [OcrLine(l["text"], l["score"], l["box"], l["poly"]) for l in d["lines"]]
+        return cls(d["image"], d["width"], d["height"], d["rotated_angle"], lines, d.get("timings", {}))
+
 
 def _order_points(pts: np.ndarray) -> np.ndarray:
     """Sắp 4 điểm theo thứ tự: trên-trái, trên-phải, dưới-phải, dưới-trái."""

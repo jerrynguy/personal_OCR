@@ -14,7 +14,7 @@ Máy mục tiêu: HP ZBook Firefly G8 (i7-1185G7, 32GB RAM, Intel Iris Xe, Windo
 |---|---|---|
 | **1** | Môi trường Python, tách PDF thành ảnh, OCR tiếng Việt offline (PaddleOCR + VietOCR) | ✅ xong (tinh chỉnh thêm khi có tài liệu thật) |
 | **2** | llama.cpp + LLM offline, đo tốc độ, LLM trả JSON theo schema | ✅ xong (gpt-oss-20b: 8/8 trường) |
-| 3 | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | |
+| **3** | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | ⏳ đang làm |
 | 4 | Pipeline đầy đủ + SQLite + xuất Excel (chạy bằng dòng lệnh) | |
 | 5 | Backend FastAPI | |
 | 6 | Giao diện React (Phông/Hồ sơ, tải PDF, hàng đợi, màn soát, xuất file) | |
@@ -32,7 +32,12 @@ sohoa-luutru/
 │  │  ├─ ocr.py             xoay trang + tìm vùng chữ (PaddleOCR) + đọc chữ (VietOCR)
 │  │  ├─ vietocr_rec.py     bọc VietOCR chạy offline
 │  │  ├─ metrics.py         tính tỉ lệ lỗi ký tự (CER) so với đáp án
-│  │  └─ llm.py             bật/tắt llama-server, gọi LLM ép JSON schema
+│  │  ├─ llm.py             bật/tắt llama-server, gọi LLM ép JSON schema
+│  │  ├─ schema/tt05.json   danh sách trường TT05 (Phông/Hồ sơ/Tài liệu) — sửa không cần code
+│  │  ├─ tt05.py            đọc schema
+│  │  ├─ rules.py           luật: số, ký hiệu, ngày, tên loại, cơ quan, độ mật/khẩn, tờ số
+│  │  ├─ segment.py         tách PDF nhiều trang thành từng văn bản
+│  │  └─ extract.py         luật + LLM -> bản ghi TT05, đối chiếu, tính dữ liệu hồ sơ
 │  │  └─ vietocr_configs/   config VietOCR (bản sao, để không phải tải qua mạng)
 │  └─ scripts/
 │     ├─ download_models.py   tải model (1 lần, cần mạng)
@@ -41,7 +46,8 @@ sohoa-luutru/
 │     ├─ bench_ocr.py         so sánh các cấu hình OCR trên 1 trang
 │     ├─ download_llama_cpp.py  tải llama.cpp (llama-server) bản Windows
 │     ├─ download_llm.py        tìm / tải / chọn model GGUF
-│     └─ step2_llm_test.py      kiểm tra LLM: tốc độ + trích xuất thử
+│     ├─ step2_llm_test.py      kiểm tra LLM: tốc độ + trích xuất thử
+│     └─ step3_extract_pdf.py   PDF -> từng văn bản -> trường TT05
 ├─ models/   (tự tạo, không commit)  model OCR + LLM
 └─ data/     (tự tạo, không commit)  ảnh, kết quả — có thể chứa tài liệu mật
 ```
@@ -210,3 +216,50 @@ Nếu lỗi, log đầy đủ của llama-server nằm ở `sohoa-luutru\data\lo
 nạp model 14–30s; Test 2 đúng **8/8 trường** trong 45.9s — đọc prompt 631 token @ 22.1 token/s
 (~28s, phần chậm nhất), sinh 150 token @ 8.6 token/s (~17s). Gemma 4 26B-A4B sẽ so sánh sau
 với cùng bài test.
+
+---
+
+## Bước 3 — Trường dữ liệu TT05, tách văn bản, luật + LLM
+
+**Cấu trúc dữ liệu** theo Điều 4 TT 05/2025/TT-BNV, nằm trong `backend/app/schema/tt05.json`
+(sửa nhãn, thứ tự, giá trị mặc định ở đây — không cần sửa code):
+
+| Nhóm | Số trường | Ghi chú |
+|---|---|---|
+| Phông (điểm a) | 10 | nhập tay |
+| Hồ sơ (điểm b) | 19 | nhập tay + tự tính (thời gian bắt đầu/kết thúc, tổng số tài liệu, số tờ/trang, từ khóa) |
+| Tài liệu (điểm c) | 23 | luật + LLM + kế thừa từ hồ sơ; "quy trình xử lý" chỉ cho tài liệu gốc điện tử nên để trống |
+| Bổ sung | 8 | trang trong PDF, độ mật, độ khẩn, người ký, chức vụ, tờ số, điểm OCR, **cần kiểm tra** |
+
+**Cách lấy từng trường của tài liệu:**
+
+- **Luật** (theo thể thức NĐ 30, chịu được lỗi dấu của OCR): tên loại, số, ký hiệu, ngày ban hành,
+  độ mật, độ khẩn, tờ số. Giữ NGUYÊN số/ký hiệu gốc.
+- **LLM**: cơ quan ban hành (chuẩn hóa viết hoa), trích yếu, từ khóa, ngôn ngữ, người ký.
+  LLM cũng đọc lại số/ký hiệu/ngày/tên loại để **đối chiếu** — khác với luật thì ghi vào cột
+  "Cần kiểm tra" (giá trị của luật được giữ).
+- **Kế thừa từ hồ sơ**: thời hạn lưu trữ, mức độ tiếp cận, mức độ tin cậy, tình trạng vật lý,
+  ký hiệu thông tin, chế độ/tình trạng dự phòng.
+- **Tự tính**: mã lưu trữ tài liệu (= mã hồ sơ + số thứ tự), số trang, số tờ, tệp tin.
+
+**Tách văn bản:** trang có quốc hiệu hoặc dòng "Số: ..." ở đầu trang = trang đầu văn bản mới;
+các trang khác nối vào văn bản phía trước.
+
+### 3.1 Chạy
+
+```powershell
+python scripts\make_sample_pdf.py
+python scripts\step3_extract_pdf.py ..\data\samples\mau_ho_so.pdf
+```
+
+PDF mẫu có 2 văn bản (Quyết định 2 trang + Công văn 1 trang) kèm đáp án → script tự chấm điểm.
+Thông tin nhập tay của phông/hồ sơ lấy từ `mau_ho_so.ho_so.json` (nằm cạnh PDF) — làm file
+tương tự cho PDF thật, hoặc truyền `--ho-so duong_dan.json`.
+
+Tuỳ chọn: `--no-llm` (chỉ chạy luật), `--pages 1-10`, `--ocr-lai` (mặc định dùng lại kết quả OCR đã lưu).
+Kết quả đầy đủ: `data\step3\<tên file>\ket_qua.json`.
+
+### ✅ Bước 3 coi là xong khi
+
+1. PDF mẫu: tách đúng 2 văn bản, chấm điểm 16/16 (hoặc chỉ lệch nhẹ ở trích yếu/cơ quan).
+2. Ghi lại thời gian mỗi văn bản.
