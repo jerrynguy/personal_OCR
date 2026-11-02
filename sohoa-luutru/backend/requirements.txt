@@ -1,5 +1,17 @@
 # Bước 1 — OCR offline
-# Ghim đúng phiên bản đã kiểm tra. paddlepaddle 3.2.x là bản CPU (máy không có card NVIDIA).
+# Ghim đúng phiên bản đã kiểm tra.
+
+# PaddleOCR: chỉ dùng để xoay trang + tìm vùng chữ. Bản CPU (máy không có card NVIDIA).
 paddlepaddle==3.2.2
 paddleocr==3.7.0
 pymupdf==1.26.7
+
+# VietOCR: đọc chữ tiếng Việt. Trên Windows, torch từ PyPI là bản CPU.
+torch==2.15.0
+torchvision==0.29.2
+einops
+gdown
+
+# LƯU Ý: bản thân VietOCR phải cài RIÊNG, không kèm thư viện phụ (vì nó ghim các bản
+# pillow/numpy rất cũ, sẽ làm hỏng môi trường):
+#     pip install --no-deps vietocr==0.3.13

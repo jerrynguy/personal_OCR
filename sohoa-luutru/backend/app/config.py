@@ -13,16 +13,49 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 MODELS_DIR = Path(os.environ.get("SOHOA_MODELS_DIR", ROOT_DIR / "models"))
 DATA_DIR = Path(os.environ.get("SOHOA_DATA_DIR", ROOT_DIR / "data"))
 
-# PaddleOCR (PaddleX) lưu model vào <PADDLE_HOME>/official_models/<tên model>
+# ---------------------------------------------------------------- PaddleOCR
+# PaddleOCR CHỈ dùng để: (1) nhận biết trang bị xoay, (2) tìm vùng dòng chữ.
+# KHÔNG dùng PaddleOCR để đọc chữ: bảng ký tự của nó thiếu các chữ Việt như
+# ộ, ậ, ự, ủ, ữ... (đã kiểm chứng ở lần chạy thử đầu tiên).
 PADDLE_HOME = MODELS_DIR / "paddlex"
 PADDLE_MODELS_DIR = PADDLE_HOME / "official_models"
 
-# PP-OCRv6 có hỗ trợ tiếng Việt (lang="vi").
-OCR_MODELS = {
-    "det": "PP-OCRv6_medium_det",  # tìm vùng chữ
-    "rec": "PP-OCRv6_medium_rec",  # đọc chữ
-    "doc_ori": "PP-LCNet_x1_0_doc_ori",  # nhận biết trang bị xoay 90/180/270 độ
+DOC_ORI_MODEL = "PP-LCNet_x1_0_doc_ori"
+DET_MODELS = ["PP-OCRv5_mobile_det", "PP-OCRv6_medium_det"]
+DEFAULT_DET_MODEL = "PP-OCRv5_mobile_det"
+# Ảnh được thu nhỏ để cạnh dài nhất bằng giá trị này trước khi tìm vùng chữ.
+# Mặc định của PaddleOCR là KHÔNG thu nhỏ -> rất chậm với ảnh scan 300 DPI.
+DEFAULT_DET_SIDE = 1920
+
+# ---------------------------------------------------------------- VietOCR
+# Model đọc chữ tiếng Việt (đủ 134 chữ cái có dấu).
+VIETOCR_DIR = MODELS_DIR / "vietocr"
+VIETOCR_CONFIG_DIR = Path(__file__).resolve().parent / "vietocr_configs"
+VIETOCR_MODELS = {
+    # tên: (file config, file trọng số)
+    "vgg_seq2seq": ("vgg-seq2seq.yml", "vgg_seq2seq.pth"),
+    "vgg_transformer": ("vgg-transformer.yml", "vgg_transformer.pth"),
 }
+VIETOCR_WEIGHTS_URL = "https://vocr.vn/data/vietocr/{}"
+DEFAULT_REC_MODEL = "vgg_seq2seq"
+
+
+def paddle_model_dir(name: str) -> Path:
+    return PADDLE_MODELS_DIR / name
+
+
+def vietocr_weights_path(name: str) -> Path:
+    return VIETOCR_DIR / VIETOCR_MODELS[name][1]
+
+
+def default_threads() -> int:
+    """Số nhân thật của CPU (i7-1185G7: 4). Dùng số nhân thật thường nhanh hơn số luồng."""
+    try:
+        import psutil
+
+        return psutil.cpu_count(logical=False) or 4
+    except Exception:
+        return 4
 
 
 def setup_paddle_env(offline: bool = True) -> None:
@@ -36,7 +69,3 @@ def setup_paddle_env(offline: bool = True) -> None:
         os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
     else:
         os.environ.pop("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", None)
-
-
-def ocr_model_dir(key: str) -> Path:
-    return PADDLE_MODELS_DIR / OCR_MODELS[key]

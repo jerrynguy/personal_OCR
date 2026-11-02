@@ -1,6 +1,6 @@
 """BƯỚC 1 — Kiểm tra OCR offline trên một file PDF scan nhiều trang.
 
-    python scripts/step1_ocr_pdf.py <file.pdf> [--pages 1-3] [--dpi 300] [--no-orientation]
+    python scripts/step1_ocr_pdf.py <file.pdf> [--pages 1-3] [--det ...] [--rec ...]
 
 Kết quả nằm ở data/step1/<tên file>/:
     page_001.png        ảnh trang (đã xoay thẳng nếu bị ngược)
@@ -17,7 +17,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.config import DATA_DIR  # noqa: E402
+from app.config import (  # noqa: E402
+    DATA_DIR,
+    DEFAULT_DET_MODEL,
+    DEFAULT_DET_SIDE,
+    DEFAULT_REC_MODEL,
+    DET_MODELS,
+    VIETOCR_MODELS,
+)
 from app.ocr import OcrEngine, lines_to_text  # noqa: E402
 from app.pdf_render import render_pdf  # noqa: E402
 
@@ -29,10 +36,12 @@ def main() -> int:
     parser.add_argument("pdf", type=Path)
     parser.add_argument("--pages", help="Ví dụ: 1-3,5 (mặc định: tất cả)")
     parser.add_argument("--dpi", type=int, default=300)
-    parser.add_argument("--threads", type=int, help="Số luồng CPU cho OCR")
-    parser.add_argument(
-        "--no-orientation", action="store_true", help="Tắt tự xoay trang (nhanh hơn chút)"
-    )
+    parser.add_argument("--det", choices=DET_MODELS, default=DEFAULT_DET_MODEL)
+    parser.add_argument("--det-side", type=int, default=DEFAULT_DET_SIDE)
+    parser.add_argument("--rec", choices=list(VIETOCR_MODELS), default=DEFAULT_REC_MODEL)
+    parser.add_argument("--threads", type=int, help="Số luồng CPU (mặc định: số nhân thật)")
+    parser.add_argument("--no-mkldnn", action="store_true", help="Tắt tăng tốc oneDNN của Paddle")
+    parser.add_argument("--no-orientation", action="store_true", help="Tắt tự xoay trang")
     parser.add_argument("--out", type=Path, default=DATA_DIR / "step1")
     args = parser.parse_args()
 
@@ -43,15 +52,27 @@ def main() -> int:
     out_dir = args.out / args.pdf.stem
     t0 = time.perf_counter()
     images = render_pdf(args.pdf, out_dir, dpi=args.dpi, pages=args.pages)
-    t_render = time.perf_counter() - t0
-    print(f"Đã tách {len(images)} trang ({t_render:.1f}s) -> {out_dir}")
+    print(f"Đã tách {len(images)} trang ({time.perf_counter() - t0:.1f}s) -> {out_dir}")
 
     t0 = time.perf_counter()
-    engine = OcrEngine(use_doc_orientation=not args.no_orientation, cpu_threads=args.threads)
+    engine = OcrEngine(
+        det_model=args.det,
+        rec_model=args.rec,
+        det_side=args.det_side,
+        use_doc_orientation=not args.no_orientation,
+        threads=args.threads,
+        mkldnn=not args.no_mkldnn,
+    )
     t_load = time.perf_counter() - t0
-    print(f"Nạp model OCR: {t_load:.1f}s\n")
+    print(f"Nạp model ({engine.description}): {t_load:.1f}s\n")
 
-    summary = {"pdf": str(args.pdf), "dpi": args.dpi, "load_seconds": round(t_load, 2), "pages": []}
+    summary = {
+        "pdf": str(args.pdf),
+        "dpi": args.dpi,
+        "engine": engine.description,
+        "load_seconds": round(t_load, 2),
+        "pages": [],
+    }
     for img in images:
         t0 = time.perf_counter()
         page = engine.run(img)
@@ -66,11 +87,12 @@ def main() -> int:
         low = [l for l in page.lines if l.score < LOW_SCORE]
         avg = sum(l.score for l in page.lines) / len(page.lines) if page.lines else 0
         rot = f", đã xoay {page.rotated_angle}°" if page.rotated_angle > 0 else ""
+        parts = ", ".join(f"{k} {v}s" for k, v in page.timings.items())
         print(
-            f"=== {img.name}: {len(page.lines)} dòng, {dt:.1f}s, "
+            f"=== {img.name}: {len(page.lines)} dòng, {dt:.1f}s ({parts}), "
             f"điểm TB {avg:.2f}, {len(low)} dòng < {LOW_SCORE}{rot}"
         )
-        print("\n".join(text.splitlines()[:8]))
+        print(text)
         for l in low[:5]:
             print(f"   ? ({l.score:.2f}) {l.text}")
         print()
@@ -79,6 +101,7 @@ def main() -> int:
             {
                 "image": img.name,
                 "seconds": round(dt, 2),
+                "timings": page.timings,
                 "lines": len(page.lines),
                 "avg_score": round(avg, 4),
                 "low_score_lines": len(low),
