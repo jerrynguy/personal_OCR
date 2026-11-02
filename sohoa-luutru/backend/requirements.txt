@@ -18,3 +18,8 @@ gdown
 
 # Bước 4 — xuất Excel
 openpyxl==3.1.5
+
+# Bước 5 — backend API
+fastapi==0.162.0
+uvicorn==0.54.0
+python-multipart==0.0.33

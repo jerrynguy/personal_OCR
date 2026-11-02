@@ -26,7 +26,12 @@ def parse_page_range(spec: str | None, page_count: int) -> list[int]:
 
 
 def render_pdf(
-    pdf_path: Path, out_dir: Path, dpi: int = 300, pages: str | None = None
+    pdf_path: Path,
+    out_dir: Path,
+    dpi: int = 300,
+    pages: str | None = None,
+    skip=None,
+    on_page=None,
 ) -> list[Path]:
     """Render từng trang PDF thành page_001.png, page_002.png... trong out_dir.
 
@@ -37,11 +42,14 @@ def render_pdf(
     with pymupdf.open(pdf_path) as doc:
         if doc.needs_pass:
             raise ValueError("PDF đang bị đặt mật khẩu, hãy gỡ mật khẩu trước.")
-        for idx in parse_page_range(pages, doc.page_count):
-            pix = doc[idx].get_pixmap(dpi=dpi, alpha=False)
+        indexes = parse_page_range(pages, doc.page_count)
+        for n, idx in enumerate(indexes, 1):
             img_path = out_dir / f"page_{idx + 1:03d}.png"
-            pix.save(img_path)
+            if not (skip and skip(img_path)):  # skip(ảnh) = True -> giữ ảnh cũ (vd: đã xoay thẳng)
+                doc[idx].get_pixmap(dpi=dpi, alpha=False).save(img_path)
             result.append(img_path)
+            if on_page:
+                on_page(n, len(indexes))
     return result
 
 

@@ -15,8 +15,8 @@ Máy mục tiêu: HP ZBook Firefly G8 (i7-1185G7, 32GB RAM, Intel Iris Xe, Windo
 | **1** | Môi trường Python, tách PDF thành ảnh, OCR tiếng Việt offline (PaddleOCR + VietOCR) | ✅ xong (tinh chỉnh thêm khi có tài liệu thật) |
 | **2** | llama.cpp + LLM offline, đo tốc độ, LLM trả JSON theo schema | ✅ xong (gpt-oss-20b: 8/8 trường) |
 | **3** | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | ✅ xong (16/16 trường trên ZBook) |
-| **4** | Lưu SQLite + xuất Excel / CSV + tách PDF từng tài liệu (chạy bằng dòng lệnh) | ⏳ đang làm |
-| 5 | Backend FastAPI | |
+| **4** | Lưu SQLite + xuất Excel / CSV + tách PDF từng tài liệu (chạy bằng dòng lệnh) | ✅ xong |
+| **5** | Backend FastAPI (hàng đợi xử lý, tiến độ, sửa tay, xuất file) | ⏳ đang làm |
 | 6 | Giao diện React (Phông/Hồ sơ, tải PDF, hàng đợi, màn soát, xuất file) | |
 | 7 | Electron + đóng gói bộ cài Windows | |
 
@@ -39,7 +39,11 @@ sohoa-luutru/
 │  │  ├─ segment.py         tách PDF nhiều trang thành từng văn bản
 │  │  ├─ extract.py         luật + LLM -> bản ghi TT05, đối chiếu, tính dữ liệu hồ sơ
 │  │  ├─ db.py              lưu Phông / Hồ sơ / Tài liệu vào SQLite (data/sohoa.db)
-│  │  └─ export.py          xuất Excel / CSV, tách PDF thành từng tài liệu
+│  │  ├─ export.py          xuất Excel / CSV, tách PDF thành từng tài liệu
+│  │  ├─ services.py        giữ OCR / LLM trong bộ nhớ; LLM tự tắt sau 10 phút không dùng
+│  │  ├─ jobs.py            hàng đợi xử lý (mỗi lần 1 hồ sơ), tiến độ, hủy
+│  │  ├─ pipeline.py        xử lý trọn 1 hồ sơ; giữ ô sửa tay khi xử lý lại
+│  │  └─ api.py             API cho giao diện (FastAPI), có token
 │  │  └─ vietocr_configs/   config VietOCR (bản sao, để không phải tải qua mạng)
 │  └─ scripts/
 │     ├─ download_models.py   tải model (1 lần, cần mạng)
@@ -50,7 +54,9 @@ sohoa-luutru/
 │     ├─ download_llm.py        tìm / tải / chọn model GGUF
 │     ├─ step2_llm_test.py      kiểm tra LLM: tốc độ + trích xuất thử
 │     ├─ step3_extract_pdf.py   PDF -> từng văn bản -> trường TT05
-│     └─ step4_export.py        lưu CSDL + xuất Excel / CSV / PDF từng tài liệu
+│     ├─ step4_export.py        lưu CSDL + xuất Excel / CSV / PDF từng tài liệu
+│     ├─ run_server.py          chạy backend (API)
+│     └─ step5_api_test.py      kiểm tra backend qua API
 ├─ models/   (tự tạo, không commit)  model OCR + LLM
 └─ data/     (tự tạo, không commit)  ảnh, kết quả — có thể chứa tài liệu mật
 ```
@@ -296,3 +302,51 @@ Cần cài thêm thư viện Excel: `pip install -r requirements.txt` (thêm `op
 
 1. Mở được file `.xlsx` bằng Excel, tiếng Việt hiển thị đúng, đủ 4 sheet.
 2. Thư mục `tai_lieu\` có 2 file PDF (2 trang và 1 trang).
+
+---
+
+## Bước 5 — Backend (API)
+
+Backend FastAPI là lớp nằm giữa giao diện (Bước 6) và toàn bộ phần xử lý ở các bước trước.
+
+- **Chỉ nghe 127.0.0.1.** Mọi request phải kèm token ngẫu nhiên (header `X-Token`), trừ chế độ `--dev`.
+- **Hàng đợi xử lý:** mỗi lần chỉ chạy 1 hồ sơ (OCR và LLM đều dùng hết CPU), các hồ sơ khác chờ.
+  Có tiến độ theo giai đoạn (tách trang → OCR → tách văn bản → nạp AI → trích xuất → lưu),
+  ước tính thời gian còn lại, và nút hủy.
+- **Giữ model trong bộ nhớ:** OCR nạp 1 lần; LLM tự tắt sau 10 phút không dùng để trả RAM.
+- **Dùng lại OCR:** xử lý lại một hồ sơ không OCR lại (trừ khi chọn `ocr_lai`).
+- **Không mất công soát:** khi xử lý lại, văn bản nào vẫn đúng các trang như cũ thì giữ các ô
+  đã sửa tay và cờ "đã soát".
+- **Sửa thông tin hồ sơ** (thời hạn lưu trữ, mã hồ sơ...) thì tự cập nhật xuống các tài liệu,
+  trừ ô đã sửa tay; các trường tự tính của hồ sơ được tính lại.
+- CSDL cũ (tạo ở Bước 4) được tự nâng cấp, không mất dữ liệu.
+
+Dữ liệu mỗi hồ sơ: `data\ho_so\<id>\` (PDF gốc, ảnh + OCR từng trang, file xuất).
+
+### 5.1 Cài thêm thư viện
+
+```powershell
+pip install -r requirements.txt
+```
+
+### 5.2 Chạy thử (2 cửa sổ PowerShell, cùng ở thư mục `backend` và đã bật `.venv`)
+
+Cửa sổ 1 — chạy backend:
+
+```powershell
+python scripts\run_server.py --dev
+```
+
+Cửa sổ 2 — gọi API giống hệt giao diện sẽ gọi (tạo hồ sơ, tải PDF, xử lý, theo dõi tiến độ,
+sửa tay, tải Excel):
+
+```powershell
+python scripts\step5_api_test.py
+```
+
+Xem danh sách API: mở `http://127.0.0.1:8765/docs` trong trình duyệt (chỉ có ở chế độ `--dev`).
+
+### ✅ Bước 5 coi là xong khi
+
+1. Script in đủ 6 bước, tách đúng 2 tài liệu, tải được file Excel về `data\step5\`.
+2. Tắt backend (Ctrl+C ở cửa sổ 1) thì llama-server cũng tắt theo (Task Manager không còn `llama-server.exe`).

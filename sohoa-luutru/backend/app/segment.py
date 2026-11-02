@@ -37,3 +37,15 @@ def split_documents(pages: list[OcrPage], page_numbers: list[int] | None = None)
         docs[-1].pages.append(page)
         docs[-1].page_numbers.append(no)
     return docs
+
+
+def split_by_boundaries(pages: list[OcrPage], page_numbers: list[int], starts: list[int]) -> list[Document]:
+    """Tách theo danh sách trang bắt đầu văn bản do người dùng chỉ định (số trang PDF)."""
+    starts_set = set(starts)
+    docs: list[Document] = []
+    for page, no in zip(pages, page_numbers):
+        if not docs or no in starts_set:
+            docs.append(Document())
+        docs[-1].pages.append(page)
+        docs[-1].page_numbers.append(no)
+    return docs
