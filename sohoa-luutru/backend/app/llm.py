@@ -159,13 +159,19 @@ class LlmClient:
         max_tokens: int = 512,
         temperature: float = 0.0,
         json_schema: dict | None = None,
+        reasoning_effort: str = "low",
     ) -> tuple[str, dict]:
-        """Trả về (nội dung, timings). timings có prompt_per_second / predicted_per_second."""
+        """Trả về (nội dung, timings). timings có prompt_per_second / predicted_per_second.
+
+        Model "suy nghĩ trước khi trả lời" (gpt-oss...) dùng một phần max_tokens cho phần
+        suy nghĩ ẩn; reasoning_effort="low" để nó suy nghĩ ngắn. Model khác bỏ qua tham số này.
+        """
         body = {
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "cache_prompt": True,
+            "chat_template_kwargs": {"reasoning_effort": reasoning_effort},
         }
         if json_schema is not None:
             body["response_format"] = {
@@ -176,9 +182,14 @@ class LlmClient:
         if r.status_code != 200:
             raise RuntimeError(f"LLM lỗi {r.status_code}: {r.text[:500]}")
         data = r.json()
-        content = data["choices"][0]["message"].get("content") or ""
+        message = data["choices"][0]["message"]
+        content = message.get("content") or ""
         timings = data.get("timings", {})
         timings["finish_reason"] = data["choices"][0].get("finish_reason")
+        reasoning = message.get("reasoning_content") or ""
+        if reasoning:
+            timings["reasoning_chars"] = len(reasoning)
+            timings["reasoning_preview"] = reasoning[:300]
         return content, timings
 
     def extract_json(
@@ -193,4 +204,9 @@ class LlmClient:
             return json.loads(content), timings
         except json.JSONDecodeError as e:
             hint = " (hết max_tokens giữa chừng)" if timings.get("finish_reason") == "length" else ""
+            if not content and timings.get("reasoning_preview"):
+                hint += (
+                    f". Model dùng hết giới hạn cho phần suy nghĩ ({timings['reasoning_chars']} ký tự), "
+                    f"chưa kịp trả lời. Đoạn đầu: {timings['reasoning_preview'][:200]!r}"
+                )
             raise ValueError(f"LLM trả về JSON không hợp lệ{hint}: {content[:300]}") from e

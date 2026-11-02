@@ -118,18 +118,27 @@ def main() -> int:
         t0 = time.perf_counter()
         answer, t1 = llm.chat(
             [{"role": "user", "content": "Trả lời đúng 1 câu ngắn: Thủ đô của Việt Nam là gì?"}],
-            max_tokens=48,
+            max_tokens=512,
         )
-        print(f"   {answer.strip()}")
+        print(f"   {answer.strip() or '(trống)'}")
+        if t1.get("reasoning_chars"):
+            print(f"   (model suy nghĩ ẩn {t1['reasoning_chars']} ký tự trước khi trả lời)")
         print(
-            f"   {time.perf_counter() - t0:.1f}s | sinh chữ {t1.get('predicted_per_second', 0):.1f} token/s\n"
+            f"   {time.perf_counter() - t0:.1f}s | sinh {t1.get('predicted_n', '?')} token @ "
+            f"{t1.get('predicted_per_second', 0):.1f} token/s\n"
         )
 
         print("== Test 2: trích xuất trường dữ liệu từ văn bản OCR (ép JSON schema)")
         t0 = time.perf_counter()
-        result, t2 = llm.extract_json(SYSTEM, f"Văn bản OCR:\n\n{text}", SCHEMA, max_tokens=400)
+        try:
+            result, t2 = llm.extract_json(SYSTEM, f"Văn bản OCR:\n\n{text}", SCHEMA, max_tokens=2048)
+        except ValueError as e:
+            print(f"   LỖI: {e}")
+            return 1
         total = time.perf_counter() - t0
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        if t2.get("reasoning_chars"):
+            print(f"   (model suy nghĩ ẩn {t2['reasoning_chars']} ký tự trước khi trả lời)")
 
         if expected:
             ok = 0
