@@ -27,7 +27,7 @@ from app.config import (  # noqa: E402
 )
 from app.metrics import cer, load_truth, word_diffs  # noqa: E402
 from app.ocr import OcrEngine, lines_to_text  # noqa: E402
-from app.pdf_render import render_pdf  # noqa: E402
+from app.pdf_render import low_dpi_warning, render_pdf  # noqa: E402
 
 LOW_SCORE = 0.80  # dòng có điểm dưới mức này sẽ được đánh dấu để soát lại
 
@@ -51,6 +51,9 @@ def main() -> int:
         print(f"Không thấy file: {args.pdf}")
         return 1
 
+    warning = low_dpi_warning(args.pdf)
+    if warning:
+        print(f"\n!!! {warning}\n")
     out_dir = args.out / args.pdf.stem
     t0 = time.perf_counter()
     images = render_pdf(args.pdf, out_dir, dpi=args.dpi, pages=args.pages)

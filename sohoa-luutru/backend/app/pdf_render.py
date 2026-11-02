@@ -45,6 +45,39 @@ def render_pdf(
     return result
 
 
+MIN_SOURCE_DPI = 200  # dưới mức này chữ thường quá nhỏ để OCR đọc đúng
+
+
+def source_dpi(pdf_path: Path) -> list[float | None]:
+    """Độ phân giải THẬT của ảnh scan nằm trong từng trang PDF (không phải DPI lúc render).
+
+    Render 300 DPI một ảnh gốc 73 DPI chỉ phóng to ảnh mờ, không thêm chi tiết.
+    None = trang không có ảnh (PDF chữ).
+    """
+    result: list[float | None] = []
+    with pymupdf.open(pdf_path) as doc:
+        for page in doc:
+            dpis = []
+            for info in page.get_image_info():
+                x0, y0, x1, y1 = info["bbox"]
+                if x1 - x0 > 0 and (x1 - x0) * (y1 - y0) > 0.25 * page.rect.width * page.rect.height:
+                    dpis.append(info["width"] / ((x1 - x0) / 72))
+            result.append(round(min(dpis)) if dpis else None)
+    return result
+
+
+def low_dpi_warning(pdf_path: Path) -> str | None:
+    dpis = source_dpi(pdf_path)
+    low = [(i + 1, d) for i, d in enumerate(dpis) if d is not None and d < MIN_SOURCE_DPI]
+    if not low:
+        return None
+    pages = ", ".join(f"trang {p} (~{d} DPI)" for p, d in low[:10])
+    return (
+        f"CẢNH BÁO: ảnh scan độ phân giải thấp: {pages}. "
+        f"Nên scan lại ở mức >= 300 DPI, nếu không OCR sẽ đọc sai nhiều."
+    )
+
+
 def pdf_page_count(pdf_path: Path) -> int:
     with pymupdf.open(pdf_path) as doc:
         return doc.page_count

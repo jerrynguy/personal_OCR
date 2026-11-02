@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import DATA_DIR  # noqa: E402
 from app.metrics import cer, load_truth, word_diffs  # noqa: E402
-from app.ocr import OcrEngine, lines_to_text  # noqa: E402
-from app.pdf_render import render_pdf  # noqa: E402
+from app.ocr import OcrEngine, group_rows, lines_to_text  # noqa: E402
+from app.pdf_render import low_dpi_warning, render_pdf  # noqa: E402
 
 # (model tìm vùng chữ, cạnh dài tối đa, model đọc chữ, cắt dòng dài > N lần chiều cao)
 # PP-OCRv6_medium_det đã bị loại: chậm gấp ~13 lần (9.4s so với 0.7s) mà không đúng hơn.
@@ -37,6 +37,9 @@ def main() -> int:
     parser.add_argument("--threads", type=int)
     args = parser.parse_args()
 
+    warning = low_dpi_warning(args.pdf)
+    if warning:
+        print(f"\n!!! {warning}\n")
     truth_pages = load_truth(args.pdf)
     truth = truth_pages[args.page - 1] if truth_pages else None
 
@@ -69,8 +72,9 @@ def main() -> int:
             print(f"Tỉ lệ lỗi ký tự (CER): {err:.2%}")
             for d in word_diffs(text, truth):
                 print(f"   sai: {d}")
-        else:
-            print(text)
+        else:  # không có đáp án: in kèm điểm tin cậy từng dòng (0..1)
+            for row in group_rows(page.lines):
+                print("   |   ".join(f"{l.text} [{l.score:.2f}]" for l in row))
 
     print("\n==================== TÓM TẮT ====================")
     head = f"{'cấu hình':28s} {'giây/trang':>10s} {'det':>6s} {'rec':>6s} {'dòng':>5s}"
