@@ -92,8 +92,8 @@ def norm(s: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--text-file", type=Path, help="Văn bản OCR thật (file .txt của Bước 1)")
-    parser.add_argument("--variant", choices=["cpu", "vulkan"], default="cpu")
-    parser.add_argument("--ngl", type=int, default=0, help="Số lớp đưa lên GPU (chỉ bản vulkan)")
+    parser.add_argument("--variant", choices=["cpu", "cuda", "vulkan"], help="Mặc định: tự chọn theo phần cứng")
+    parser.add_argument("--ngl", type=int, help="Số lớp đưa lên GPU (mặc định: tự chọn)")
     parser.add_argument("--threads", type=int)
     args = parser.parse_args()
 
@@ -103,6 +103,9 @@ def main() -> int:
     server = LlamaServer(variant=args.variant, threads=args.threads, gpu_layers=args.ngl)
     print(f"Model : {server.model_path.name} ({server.model_path.stat().st_size / 1e9:.1f} GB)")
     print(f"Server: {server.exe}")
+    rt = server.runtime
+    print(f"Chạy  : bản {rt['variant']}, {rt['gpu_layers']} lớp lên GPU {' '.join(rt['extra_args'])}"
+          + (f" — {rt['ghi_chu']}" if rt["ghi_chu"] else ""))
     print("Đang nạp model (lần đầu có thể mất 1–3 phút)...")
     try:
         load = server.start()

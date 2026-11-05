@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 
 import requests
@@ -26,7 +27,7 @@ SERVER_EXE = "llama-server.exe" if sys.platform == "win32" else "llama-server"
 
 
 def find_llama_server(variant: str = "cpu") -> Path:
-    """Tìm llama-server trong models/llama.cpp/<variant>/ (cpu hoặc vulkan)."""
+    """Tìm llama-server trong models/llama.cpp/<variant>/ (cpu, cuda hoặc vulkan)."""
     base = LLAMA_CPP_DIR / variant
     found = sorted(base.rglob(SERVER_EXE)) if base.exists() else []
     if not found:
@@ -48,10 +49,52 @@ def active_model_path() -> Path:
 
 
 def set_active_model(path: Path) -> None:
+    cfg = _llm_config()
+    cfg["path"] = str(path.resolve())
     ACTIVE_LLM_FILE.parent.mkdir(parents=True, exist_ok=True)
-    ACTIVE_LLM_FILE.write_text(
-        json.dumps({"path": str(path.resolve())}, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    ACTIVE_LLM_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _llm_config() -> dict:
+    """models/llm/active.json: {"path": ..., và tùy chọn ghi đè: "variant", "gpu_layers", "extra_args"}."""
+    try:
+        return json.loads(ACTIVE_LLM_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+@lru_cache(maxsize=1)
+def hardware_profile() -> tuple[dict, dict]:
+    """(phần cứng, cấu hình đề nghị) — dò một lần mỗi lần mở app."""
+    from app.hardware import detect, recommend
+
+    hw = detect()
+    return hw.to_dict(), recommend(hw)
+
+
+def installed_variants() -> list[str]:
+    return [v for v in ("cuda", "vulkan", "cpu") if (LLAMA_CPP_DIR / v).exists() and any((LLAMA_CPP_DIR / v).rglob(SERVER_EXE))]
+
+
+def resolve_runtime(variant: str | None = None, gpu_layers: int | None = None,
+                    extra_args: list[str] | None = None) -> dict:
+    """Chọn bản llama.cpp + số lớp lên GPU. Thứ tự ưu tiên: tham số > active.json > tự dò phần cứng.
+    Bản đề nghị chưa được cài -> lùi về bản CPU (vẫn chạy được, chỉ chậm hơn)."""
+    cfg = _llm_config()
+    _hw, rec = hardware_profile()
+    chosen = variant or cfg.get("variant") or rec["llama_variant"]
+    note = ""
+    if chosen not in installed_variants():
+        note = f"Máy hợp với bản '{chosen}' nhưng chưa cài -> tạm dùng bản CPU"
+        chosen = "cpu"
+    auto = chosen == rec["llama_variant"]
+    if gpu_layers is None:
+        gpu_layers = cfg.get("gpu_layers", rec["gpu_layers"] if auto else (99 if chosen != "cpu" else 0))
+    if extra_args is None:
+        extra_args = cfg.get("extra_args", rec["extra_args"] if auto else [])
+    if chosen == "cpu":
+        gpu_layers, extra_args = 0, [a for a in extra_args if a != "--cpu-moe"]
+    return {"variant": chosen, "gpu_layers": gpu_layers, "extra_args": list(extra_args), "ghi_chu": note}
 
 
 def _free_port() -> int:
@@ -64,12 +107,17 @@ class LlamaServer:
     def __init__(
         self,
         model_path: Path | None = None,
-        variant: str = "cpu",
+        variant: str | None = None,
         ctx: int = LLM_CTX,
         threads: int | None = None,
-        gpu_layers: int = 0,
+        gpu_layers: int | None = None,
         extra_args: list[str] | None = None,
     ):
+        """variant / gpu_layers / extra_args = None -> tự chọn theo phần cứng (xem resolve_runtime)."""
+        self.runtime = resolve_runtime(variant, gpu_layers, extra_args)
+        variant, gpu_layers, extra_args = (
+            self.runtime["variant"], self.runtime["gpu_layers"], self.runtime["extra_args"]
+        )
         self.exe = find_llama_server(variant)
         self.model_path = model_path or active_model_path()
         self.port = _free_port()

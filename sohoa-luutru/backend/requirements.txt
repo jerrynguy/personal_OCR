@@ -19,6 +19,10 @@ gdown
 # Bước 4 — xuất Excel
 openpyxl==3.1.5
 
+# Nhận diện phần cứng (đã có sẵn theo PaddleOCR, ghi rõ để chắc chắn)
+psutil
+py-cpuinfo
+
 # Bước 5 — backend API
 fastapi==0.162.0
 uvicorn==0.54.0

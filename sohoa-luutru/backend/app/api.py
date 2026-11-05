@@ -41,6 +41,7 @@ from app import db
 from app.config import ACTIVE_LLM_FILE, DET_MODELS, DOC_ORI_MODEL, VIETOCR_MODELS, paddle_model_dir, vietocr_weights_path
 from app.export import export_csv, export_xlsx, split_pdf
 from app.jobs import JobQueue
+from app.llm import hardware_profile, installed_variants, resolve_runtime
 from app.pdf_render import low_dpi_warning
 from app.pipeline import clear_pages, ho_so_dir, ocr_cache, pages_dir, refresh_ho_so, run_job
 from app.services import LlmService, OcrService, warm_up
@@ -134,6 +135,10 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             "ocr_da_nap": ocr.loaded,
             "llm_dang_chay": llm.running,
             "nguon_dien": power_status(),
+            "phan_cung": hardware_profile()[0],
+            "khuyen_nghi": hardware_profile()[1],
+            "llama_cpp_da_cai": installed_variants(),
+            "llm_cau_hinh": resolve_runtime() if installed_variants() else None,
             "hang_doi": [j.to_dict() for j in jobs.active()],
         }
 

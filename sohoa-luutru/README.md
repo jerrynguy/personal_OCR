@@ -43,7 +43,9 @@ sohoa-luutru/
 │  │  ├─ services.py        giữ OCR / LLM trong bộ nhớ; LLM tự tắt sau 10 phút không dùng
 │  │  ├─ jobs.py            hàng đợi xử lý (mỗi lần 1 hồ sơ), tiến độ, hủy
 │  │  ├─ pipeline.py        xử lý trọn 1 hồ sơ; giữ ô sửa tay khi xử lý lại
-│  │  └─ api.py             API cho giao diện (FastAPI), có token
+│  │  ├─ api.py             API cho giao diện (FastAPI), có token
+│  │  ├─ hardware.py        nhận diện CPU / RAM / card đồ họa, chọn cách chạy LLM
+│  │  └─ winperf.py         chặn Windows hạ tốc độ tiến trình nền
 │  │  └─ vietocr_configs/   config VietOCR (bản sao, để không phải tải qua mạng)
 │  └─ scripts/
 │     ├─ download_models.py   tải model (1 lần, cần mạng)
@@ -56,7 +58,8 @@ sohoa-luutru/
 │     ├─ step3_extract_pdf.py   PDF -> từng văn bản -> trường TT05
 │     ├─ step4_export.py        lưu CSDL + xuất Excel / CSV / PDF từng tài liệu
 │     ├─ run_server.py          chạy backend (API)
-│     └─ step5_api_test.py      kiểm tra backend qua API
+│     ├─ step5_api_test.py      kiểm tra backend qua API
+│     └─ kiem_tra_may.py        phần cứng máy này + cấu hình app sẽ dùng + còn thiếu gì
 ├─ models/   (tự tạo, không commit)  model OCR + LLM
 └─ data/     (tự tạo, không commit)  ảnh, kết quả — có thể chứa tài liệu mật
 ```
@@ -363,3 +366,28 @@ Xem danh sách API: mở `http://127.0.0.1:8765/docs` trong trình duyệt (ch�
 
 1. Script in đủ 6 bước, tách đúng 2 tài liệu, tải được file Excel về `data\step5\`.
 2. Tắt backend (Ctrl+C ở cửa sổ 1) thì llama-server cũng tắt theo (Task Manager không còn `llama-server.exe`).
+
+---
+
+## Chạy trên máy khác (laptop, workstation...)
+
+App **không ghép cứng cấu hình theo một máy**. Khi chạy, nó dò phần cứng và tự chọn:
+
+| Máy | LLM chạy bằng | Model |
+|---|---|---|
+| Có card NVIDIA, VRAM đủ (vd. RTX 4090 24 GB) | llama.cpp **CUDA**, toàn bộ trên GPU | lớn |
+| Card NVIDIA VRAM ít (vd. RTX 3060 12 GB) | CUDA, phần "chuyên gia" của model MoE ở RAM (`--cpu-moe`) | lớn |
+| Card rời AMD / Intel Arc | llama.cpp **Vulkan** trên GPU | theo RAM |
+| Chỉ GPU tích hợp (Iris Xe, UHD...) | **CPU** (AVX2 / AVX-512) | RAM ≥ 24 GB: lớn, ≥ 12 GB: nhỏ |
+| RAM < 12 GB | CPU — cảnh báo: không đủ RAM cho LLM | nhỏ |
+
+Bản phù hợp chưa được cài thì tự lùi về bản CPU (vẫn chạy, chỉ chậm hơn). Có thể ghi đè trong
+`models\llm\active.json` bằng các khóa `variant`, `gpu_layers`, `extra_args`.
+
+```powershell
+python scripts\kiem_tra_may.py                 # xem app nhận diện máy thế nào, còn thiếu gì
+python scripts\download_llama_cpp.py --auto    # tải đúng bản llama.cpp cho máy này (+ bản CPU dự phòng)
+```
+
+Bản cài đặt `.exe` (Bước 7) sẽ đóng gói sẵn cả 3 bản llama.cpp (CPU, CUDA, Vulkan), model OCR
+và model LLM, để cài được trên máy **không có mạng** và tự chạy đúng bản cho từng máy.
