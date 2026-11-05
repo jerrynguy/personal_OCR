@@ -49,6 +49,7 @@ DEFAULT_SPLIT_RATIO = 12.0
 LLAMA_CPP_DIR = MODELS_DIR / "llama.cpp"  # chứa các bản build: cpu/, vulkan/
 LLM_DIR = MODELS_DIR / "llm"  # chứa file .gguf
 ACTIVE_LLM_FILE = LLM_DIR / "active.json"  # model đang dùng: {"path": "...gguf"}
+DEFAULT_LLM_NAME = "gpt-oss-20b-MXFP4.gguf"  # model mặc định (đóng gói kèm bộ cài ở Bước 7)
 LLM_CTX = 8192  # độ dài ngữ cảnh (token): đủ cho văn bản vài trang + schema
 LOGS_DIR = DATA_DIR / "logs"
 

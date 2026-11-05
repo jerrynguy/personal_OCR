@@ -41,7 +41,16 @@ from app import db
 from app.config import ACTIVE_LLM_FILE, DET_MODELS, DOC_ORI_MODEL, VIETOCR_MODELS, paddle_model_dir, vietocr_weights_path
 from app.export import export_csv, export_xlsx, split_pdf
 from app.jobs import JobQueue
-from app.llm import hardware_profile, installed_variants, resolve_runtime
+from app.config import DEFAULT_LLM_NAME, LLM_DIR
+from app.llm import (
+    active_model_path,
+    default_model_path,
+    hardware_profile,
+    installed_variants,
+    is_gguf,
+    list_models,
+    resolve_runtime,
+)
 from app.pdf_render import low_dpi_warning
 from app.pipeline import clear_pages, ho_so_dir, ocr_cache, pages_dir, refresh_ho_so, run_job
 from app.services import LlmService, OcrService, warm_up
@@ -134,6 +143,8 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             "model_llm_co_file": bool(llm_path) and Path(llm_path).exists(),
             "ocr_da_nap": ocr.loaded,
             "llm_dang_chay": llm.running,
+            "llm_dang_nap": llm.loading,
+            "llm_loi": llm.last_error,
             "nguon_dien": power_status(),
             "phan_cung": hardware_profile()[0],
             "khuyen_nghi": hardware_profile()[1],
@@ -141,6 +152,96 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             "llm_cau_hinh": resolve_runtime() if installed_variants() else None,
             "hang_doi": [j.to_dict() for j in jobs.active()],
         }
+
+    # ------------------------------------------------------------ model AI (LLM)
+    def llm_status() -> dict:
+        try:
+            active = active_model_path()
+        except FileNotFoundError:
+            active = None
+        return {
+            "dang_dung": active.name if active else "",
+            "duong_dan": str(active) if active else "",
+            "mac_dinh": DEFAULT_LLM_NAME,
+            "dang_nap": llm.loading,
+            "dang_chay": llm.running,
+            "loi": llm.last_error,
+            "danh_sach": list_models(),
+            "thu_muc": str(LLM_DIR),
+            "ram_gb": hardware_profile()[0]["ram_gb"],
+        }
+
+    def check_switchable() -> None:
+        if jobs.active():
+            raise HTTPException(409, "Đang có hồ sơ xử lý — chờ xong rồi đổi model")
+        if llm.loading:
+            raise HTTPException(409, "Đang nạp model — chờ một chút")
+
+    def use_model(path: Path) -> dict:
+        if not path.exists() or path.suffix.lower() != ".gguf":
+            raise HTTPException(400, "Không thấy file .gguf ở đường dẫn này")
+        if not is_gguf(path):
+            raise HTTPException(400, "File không phải model GGUF hợp lệ (llama.cpp không đọc được)")
+        check_switchable()
+        llm.switch_model(path.resolve())
+        return llm_status()
+
+    @app.get("/api/llm")
+    def llm_info():
+        return llm_status()
+
+    @app.post("/api/llm/chon")
+    def llm_chon(body: dict = Body(...)):
+        """Dùng một file .gguf có sẵn trên máy (không sao chép)."""
+        return use_model(Path(str(body.get("duong_dan", "")).strip().strip('"')))
+
+    @app.post("/api/llm/mac-dinh")
+    def llm_mac_dinh():
+        p = default_model_path()
+        if not p:
+            raise HTTPException(404, f"Không tìm thấy {DEFAULT_LLM_NAME} — chép file vào {LLM_DIR}")
+        return use_model(p)
+
+    @app.put("/api/llm/tai-len")
+    async def llm_tai_len(request: Request, ten: str):
+        """Tải file model lên: thân request là nội dung file (ghi thẳng xuống đĩa, không qua bộ nhớ tạm)."""
+        name = _safe(Path(ten).name)
+        if not name.lower().endswith(".gguf"):
+            raise HTTPException(400, "Chỉ nhận file .gguf")
+        folder = LLM_DIR / "tai_len"
+        folder.mkdir(parents=True, exist_ok=True)
+        dest, tmp = folder / name, folder / (name + ".dang_tai")
+        first = b""
+        try:
+            with open(tmp, "wb") as f:
+                async for chunk in request.stream():
+                    if len(first) < 4:
+                        first += chunk[: 4 - len(first)]
+                        if len(first) == 4 and first != b"GGUF":
+                            raise HTTPException(400, "File không phải model GGUF hợp lệ")
+                    f.write(chunk)
+        except BaseException:
+            tmp.unlink(missing_ok=True)  # lỗi / người dùng hủy -> không để lại file dở
+            raise
+        if first != b"GGUF":
+            tmp.unlink(missing_ok=True)
+            raise HTTPException(400, "File không phải model GGUF hợp lệ")
+        tmp.replace(dest)
+        return {"duong_dan": str(dest), "ten": name, "dung_luong_gb": round(dest.stat().st_size / 1e9, 1)}
+
+    @app.delete("/api/llm")
+    def llm_xoa(duong_dan: str):
+        """Chỉ xóa được file nằm trong thư mục model của app và không phải model đang dùng."""
+        p = Path(duong_dan).resolve()
+        if LLM_DIR.resolve() not in p.parents or not p.exists():
+            raise HTTPException(400, "Chỉ xóa được model đã tải lên vào thư mục của app")
+        try:
+            if p == active_model_path().resolve():
+                raise HTTPException(400, "Đang dùng model này — chọn model khác trước khi xóa")
+        except FileNotFoundError:
+            pass
+        p.unlink()
+        return llm_status()
 
     @app.get("/api/schema")
     def schema():
@@ -265,17 +366,29 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
         return out
 
     @app.get("/api/ho-so/{ho_so_id}/trang/{n}/anh")
-    def anh_trang(ho_so_id: int, n: int):
+    def anh_trang(ho_so_id: int, n: int, nho: bool = False):
+        """Ảnh trang. nho=1 -> ảnh thu nhỏ (rộng 300px, JPEG) cho danh sách trang."""
         info = load(ho_so_id)
         if not 1 <= n <= info["so_trang"]:
             raise HTTPException(404, "Không có trang này")
         img = page_img(ho_so_id, n)
         if not img.exists():  # chưa xử lý -> render nhanh để xem trước
-            img.parent.mkdir(parents=True, exist_ok=True)
-            with pymupdf.open(info["tep_pdf"]) as d:
-                d[n - 1].get_pixmap(dpi=150, alpha=False).save(img.with_suffix(".preview.png"))
-            return FileResponse(img.with_suffix(".preview.png"), media_type="image/png")
-        return FileResponse(img, media_type="image/png")
+            img = img.with_suffix(".preview.png")
+            if not img.exists():
+                img.parent.mkdir(parents=True, exist_ok=True)
+                with pymupdf.open(info["tep_pdf"]) as d:
+                    d[n - 1].get_pixmap(dpi=150, alpha=False).save(img)
+        if not nho:
+            return FileResponse(img, media_type="image/png", headers={"Cache-Control": "no-cache"})
+        thumb = img.with_name(img.stem.split(".")[0] + ".thumb.jpg")
+        if not thumb.exists() or thumb.stat().st_mtime < img.stat().st_mtime:
+            from PIL import Image
+
+            with Image.open(img) as im:
+                im = im.convert("RGB")
+                im.thumbnail((300, 425))
+                im.save(thumb, "JPEG", quality=80)
+        return FileResponse(thumb, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/ho-so/{ho_so_id}/trang/{n}/ocr")
     def ocr_trang(ho_so_id: int, n: int):

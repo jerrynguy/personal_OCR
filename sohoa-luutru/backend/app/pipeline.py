@@ -93,43 +93,54 @@ def _run(job: Job, info: dict, pdf: Path, ocr: OcrService, llm: LlmService) -> N
     starts = job.params.get("ranh_gioi")
     docs = split_by_boundaries(pages, page_nos, starts) if starts else split_documents(pages, page_nos)
 
-    # 4) Trích xuất: luật + LLM
-    client = None
-    if not job.params.get("khong_llm"):
-        job.update(stage="nap_llm")
-        client = llm.client()
-    job.update(stage="trich_xuat", current=0, total=len(docs))
+    # 4) Kết quả của LUẬT cho mọi văn bản -> lưu ngay (vài giây) để giao diện hiện và soát được luôn.
     ho_so_base = info["ho_so"]
+    use_llm = not job.params.get("khong_llm")
+    old = {d["trang_pdf"]: d for d in db.load_ho_so(ho_so_id)["tai_lieu"]}
     records = []
     for i, doc in enumerate(docs, 1):
-        try:
-            rec = extract_document(doc, client, ho_so_base, stt=i)
-        except (ValueError, RuntimeError) as e:  # LLM lỗi ở 1 văn bản -> vẫn giữ kết quả của luật
-            rec = extract_document(doc, None, ho_so_base, stt=i)
-            rec["can_kiem_tra"] = " | ".join(filter(None, [f"LLM lỗi: {e}"[:200], rec["can_kiem_tra"]]))
-        records.append(rec)
-        llm.touch()
-        so = "/".join(filter(None, [rec["so_cua_tai_lieu"], rec["ky_hieu_cua_tai_lieu"]]))
-        job.update(current=i, message=f"Văn bản {i}: {rec['ten_loai_tai_lieu']} {so}".strip())
+        rec = extract_document(doc, None, ho_so_base, stt=i)
+        rec["ai_trang_thai"] = "cho" if use_llm else "tat"
+        records.append(_keep_manual(rec, old))
+    db.replace_tai_lieu(ho_so_id, records, build_ho_so(ho_so_base, records, pdf.name))
 
-    # 5) Giữ lại công soát của người dùng: văn bản nào vẫn đúng các trang như lần trước thì
-    #    giữ các ô đã "sửa tay" và cờ đã soát.
-    old = {d["trang_pdf"]: d for d in db.load_ho_so(ho_so_id)["tai_lieu"]}
-    for rec in records:
-        prev = old.get(rec["trang_pdf"])
-        if not prev:
-            continue
+    # 5) AI làm giàu từng văn bản (cơ quan, trích yếu, từ khóa, người ký); xong văn bản nào lưu văn bản đó.
+    if use_llm:
+        if not llm.running:
+            job.update(stage="nap_llm", current=0, total=0)
+        client = llm.client()
+        job.update(stage="trich_xuat", current=0, total=len(docs))
+        for i, doc in enumerate(docs, 1):
+            try:
+                rec = extract_document(doc, client, ho_so_base, stt=i)
+                rec["ai_trang_thai"] = "xong"
+            except (ValueError, RuntimeError) as e:  # AI lỗi ở 1 văn bản -> giữ kết quả của luật
+                rec = extract_document(doc, None, ho_so_base, stt=i)
+                rec["ai_trang_thai"] = "loi"
+                rec["can_kiem_tra"] = " | ".join(filter(None, [f"AI lỗi: {e}"[:200], rec["can_kiem_tra"]]))
+            rec = _keep_manual(rec, old)
+            records[i - 1] = rec
+            db.write_docs(ho_so_id, [rec])
+            llm.touch()
+            so = "/".join(filter(None, [rec["so_cua_tai_lieu"], rec["ky_hieu_cua_tai_lieu"]]))
+            job.update(current=i, message=f"Văn bản {i}: {rec['ten_loai_tai_lieu']} {so}".strip())
+
+    # 6) Tính lại dữ liệu hồ sơ (thời gian, từ khóa...) và xong
+    job.update(stage="luu", current=0, total=0, message="")
+    db.update_ho_so_info(ho_so_id, None, build_ho_so(ho_so_base, records, pdf.name))
+    db.set_status(ho_so_id, "xong")
+
+
+def _keep_manual(rec: dict, old: dict) -> dict:
+    """Giữ công soát: văn bản vẫn đúng các trang như lần trước -> giữ ô 'sửa tay' và cờ đã soát."""
+    prev = old.get(rec["trang_pdf"])
+    if prev:
         for k, src in prev["_nguon"].items():
             if src == "sửa tay" and k in prev:
                 rec[k] = prev[k]
                 rec["_nguon"][k] = "sửa tay"
         rec["da_soat"] = prev.get("da_soat", False)
-
-    # 6) Lưu
-    job.update(stage="luu", current=0, total=0, message="")
-    ho_so = build_ho_so(ho_so_base, records, pdf.name)
-    db.replace_tai_lieu(ho_so_id, records, ho_so)
-    db.set_status(ho_so_id, "xong")
+    return rec
 
 
 def refresh_ho_so(ho_so_id: int) -> dict:

@@ -20,7 +20,15 @@ from pathlib import Path
 
 import requests
 
-from app.config import ACTIVE_LLM_FILE, LLAMA_CPP_DIR, LLM_CTX, LOGS_DIR, default_threads
+from app.config import (
+    ACTIVE_LLM_FILE,
+    DEFAULT_LLM_NAME,
+    LLAMA_CPP_DIR,
+    LLM_CTX,
+    LLM_DIR,
+    LOGS_DIR,
+    default_threads,
+)
 from app.winperf import disable_power_throttling
 
 SERVER_EXE = "llama-server.exe" if sys.platform == "win32" else "llama-server"
@@ -37,22 +45,69 @@ def find_llama_server(variant: str = "cpu") -> Path:
     return found[0]
 
 
+def is_gguf(path: Path) -> bool:
+    """File model llama.cpp bắt đầu bằng 4 byte 'GGUF'."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"GGUF"
+    except OSError:
+        return False
+
+
+def default_model_path() -> Path | None:
+    """Model mặc định (gpt-oss-20b-MXFP4.gguf): trong models/llm/ hoặc trong lịch sử đã dùng."""
+    for p in [*sorted(LLM_DIR.rglob(DEFAULT_LLM_NAME)), *map(Path, _llm_config().get("lich_su", []))]:
+        if p.name == DEFAULT_LLM_NAME and p.exists():
+            return p
+    return None
+
+
 def active_model_path() -> Path:
-    if not ACTIVE_LLM_FILE.exists():
-        raise FileNotFoundError(
-            "Chưa chọn model LLM. Chạy 'python scripts/download_llm.py' (xem README Bước 2)."
-        )
-    path = Path(json.loads(ACTIVE_LLM_FILE.read_text(encoding="utf-8"))["path"])
-    if not path.exists():
-        raise FileNotFoundError(f"File model không còn tồn tại: {path}")
-    return path
+    path_str = _llm_config().get("path")
+    if path_str and Path(path_str).exists():
+        return Path(path_str)
+    default = default_model_path()
+    if default:
+        return default
+    if path_str:
+        raise FileNotFoundError(f"File model không còn tồn tại: {path_str}")
+    raise FileNotFoundError(
+        f"Chưa có model AI. Chép {DEFAULT_LLM_NAME} vào {LLM_DIR} hoặc chọn model trong mục 'Model AI'."
+    )
 
 
 def set_active_model(path: Path) -> None:
     cfg = _llm_config()
-    cfg["path"] = str(path.resolve())
+    resolved = str(path.resolve())
+    cfg["path"] = resolved
+    cfg["lich_su"] = list(dict.fromkeys([resolved, *cfg.get("lich_su", [])]))[:20]
     ACTIVE_LLM_FILE.parent.mkdir(parents=True, exist_ok=True)
     ACTIVE_LLM_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def list_models() -> list[dict]:
+    """Các file .gguf có thể chọn: trong models/llm/ + các file đã từng dùng (vd. thư mục LM Studio)."""
+    try:
+        active = str(active_model_path().resolve())
+    except FileNotFoundError:
+        active = ""
+    paths = [p for p in LLM_DIR.rglob("*.gguf") if "mmproj" not in p.name.lower()]
+    paths += [Path(p) for p in _llm_config().get("lich_su", [])]
+    out, seen = [], set()
+    for p in paths:
+        key = str(p.resolve()) if p.exists() else str(p)
+        if key in seen or not p.exists():
+            continue
+        seen.add(key)
+        out.append({
+            "duong_dan": key,
+            "ten": p.name,
+            "dung_luong_gb": round(p.stat().st_size / 1e9, 1),
+            "dang_dung": key == active,
+            "mac_dinh": p.name == DEFAULT_LLM_NAME,
+            "trong_thu_muc_app": LLM_DIR.resolve() in p.resolve().parents,
+        })
+    return sorted(out, key=lambda m: (not m["dang_dung"], not m["mac_dinh"], m["ten"].lower()))
 
 
 def _llm_config() -> dict:

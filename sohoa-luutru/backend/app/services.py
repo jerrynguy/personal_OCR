@@ -43,17 +43,59 @@ class LlmService:
         self._server: LlamaServer | None = None
         self._lock = threading.Lock()
         self._last_used = 0.0
+        self.loading = False  # đang nạp model
+        self.last_error = ""  # lỗi lần nạp gần nhất (hiện trên giao diện)
         self._watcher = threading.Thread(target=self._idle_loop, daemon=True)
         self._watcher.start()
 
     def client(self) -> LlmClient:
         with self._lock:
             if self._server is None or self._server.proc is None or self._server.proc.poll() is not None:
-                server = LlamaServer()
-                server.start()
+                self.loading = True
+                try:
+                    server = LlamaServer()
+                    server.start()
+                except Exception as e:
+                    self.last_error = str(e)
+                    raise
+                finally:
+                    self.loading = False
                 self._server = server
+                self.last_error = ""
             self._last_used = time.monotonic()
             return self._server.client()
+
+    @property
+    def model_name(self) -> str:
+        return self._server.model_path.name if self._server else ""
+
+    def switch_model(self, path, on_done=None) -> None:
+        """Đổi model: tắt model cũ, nạp thử model mới ở nền. Nạp lỗi -> quay về model cũ."""
+        from app.llm import active_model_path, set_active_model
+
+        try:
+            previous = active_model_path()
+        except FileNotFoundError:
+            previous = None
+        set_active_model(path)
+        self.stop()
+        self.loading, self.last_error = True, ""
+
+        def run():
+            try:
+                self.client()
+            except Exception as e:  # noqa: BLE001
+                msg = f"Không nạp được model {path.name}: {e}"
+                if previous and previous != path:
+                    set_active_model(previous)
+                    msg += f" — đã quay về model cũ ({previous.name})"
+                self.last_error = msg
+            finally:
+                self.loading = False
+                if on_done:
+                    on_done()
+
+        threading.Thread(target=run, daemon=True, name="llm-switch").start()
 
     def touch(self) -> None:
         self._last_used = time.monotonic()

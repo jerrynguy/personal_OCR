@@ -17,7 +17,7 @@ Máy mục tiêu: HP ZBook Firefly G8 (i7-1185G7, 32GB RAM, Intel Iris Xe, Windo
 | **3** | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | ✅ xong (16/16 trường trên ZBook) |
 | **4** | Lưu SQLite + xuất Excel / CSV + tách PDF từng tài liệu (chạy bằng dòng lệnh) | ✅ xong |
 | **5** | Backend FastAPI (hàng đợi xử lý, tiến độ, sửa tay, xuất file) | ✅ xong (3 trang / 2 văn bản: 94s trên ZBook) |
-| **6** | Giao diện React (Phông/Hồ sơ, tải PDF, hàng đợi, màn soát, xuất file) | ⏳ tiếp theo |
+| **6** | Giao diện: hồ sơ, tải PDF, tiến độ, màn soát, tách văn bản, xuất file, model AI, kiểm tra máy | ⏳ đang làm |
 | 7 | Electron + đóng gói bộ cài Windows | |
 
 ## Cấu trúc thư mục
@@ -60,6 +60,12 @@ sohoa-luutru/
 │     ├─ run_server.py          chạy backend (API)
 │     ├─ step5_api_test.py      kiểm tra backend qua API
 │     └─ kiem_tra_may.py        phần cứng máy này + cấu hình app sẽ dùng + còn thiếu gì
+├─ frontend/  giao diện (Next.js, xuất ra file tĩnh frontend/out/ — backend phục vụ trực tiếp)
+│  ├─ app/page.js            danh sách hồ sơ + tạo hồ sơ
+│  ├─ app/ho-so/page.js      chi tiết hồ sơ: tải PDF, tiến độ, soát tài liệu, thông tin hồ sơ, tách văn bản, xuất
+│  ├─ app/model-ai/page.js   chọn / tải lên model AI
+│  ├─ app/may/page.js        kiểm tra máy
+│  └─ components/            form trường TT05, khung xem ảnh trang (tô sáng chữ)
 ├─ models/   (tự tạo, không commit)  model OCR + LLM
 └─ data/     (tự tạo, không commit)  ảnh, kết quả — có thể chứa tài liệu mật
 ```
@@ -395,3 +401,49 @@ python scripts\download_llama_cpp.py --auto    # tải đúng bản llama.cpp ch
 
 Bản cài đặt `.exe` (Bước 7) sẽ đóng gói sẵn cả 3 bản llama.cpp (CPU, CUDA, Vulkan), model OCR
 và model LLM, để cài được trên máy **không có mạng** và tự chạy đúng bản cho từng máy.
+
+---
+
+## Bước 6 — Giao diện
+
+| Màn hình | Làm được gì |
+|---|---|
+| **Hồ sơ** | Danh sách hồ sơ (trạng thái, số tài liệu, số cần kiểm tra, đã soát); **Tạo hồ sơ** (form Phông + Hồ sơ sinh từ `tt05.json`) |
+| **Chi tiết hồ sơ** | Kéo thả PDF → tự xử lý; thanh tiến độ theo giai đoạn + thời gian còn lại + Hủy; xuất Excel / CSV / PDF từng tài liệu; xóa |
+| ↳ Soát tài liệu | Danh sách văn bản · ảnh trang (bấm vào ô nào thì **chữ tương ứng trên ảnh sáng vàng**, dòng OCR kém tin cậy viền đỏ) · 23 trường + cột bổ sung, nhãn nguồn từng ô (Luật / AI / Sửa tay / Từ hồ sơ / Tự tính), ô cần kiểm tra, nút **"Đã soát, sang văn bản tiếp"** |
+| ↳ Thông tin hồ sơ | Sửa Phông / Hồ sơ → tự cập nhật xuống tài liệu (trừ ô đã sửa tay) |
+| ↳ Tách văn bản | Ảnh thu nhỏ các trang; bấm để đánh dấu trang đầu văn bản → xử lý lại (giữ công soát) |
+| **Model AI** | Xem model đang dùng; **dùng file .gguf có sẵn** (dán đường dẫn, không sao chép) hoặc **tải file lên**; nạp thử ngay, lỗi thì tự quay về model cũ; **Về mặc định** (`gpt-oss-20b-MXFP4.gguf`); xóa model đã tải lên |
+| **Kiểm tra máy** | Phần cứng, cách app chạy AI trên máy này, model đã có, cảnh báo chạy bằng pin |
+
+**Kết quả hiện dần:** ngay sau OCR (vài giây/trang), kết quả của luật (tên loại, số, ký hiệu, ngày...)
+đã hiện để soát; AI điền cơ quan, trích yếu, từ khóa, người ký cho từng văn bản ở nền.
+
+### 6.1 Cài Node.js (một lần)
+
+Tải bản **LTS** tại nodejs.org (nếu máy chưa có — kiểm tra bằng `node -v`).
+
+### 6.2 Build giao diện (mỗi khi giao diện thay đổi)
+
+```powershell
+cd sohoa-luutru\frontend
+npm install
+npm run build
+```
+
+Kết quả ở `frontend\out\` — backend tự tìm thấy thư mục này.
+
+### 6.3 Chạy
+
+```powershell
+cd ..\backend
+python scripts\run_server.py
+```
+
+Trình duyệt tự mở giao diện (địa chỉ có kèm token, in ra ở cửa sổ PowerShell). Giữ cửa sổ
+PowerShell mở trong lúc dùng; tắt bằng Ctrl+C. (Bước 7 sẽ thay cửa sổ này bằng app desktop có icon.)
+
+### ✅ Bước 6 coi là xong khi
+
+Đi trọn một vòng trên giao diện: tạo hồ sơ → kéo thả PDF → xem kết quả hiện dần → soát, sửa,
+đánh dấu đã soát → xuất Excel; đổi model AI rồi về mặc định.

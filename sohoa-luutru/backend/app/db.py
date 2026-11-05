@@ -212,8 +212,10 @@ def write_docs(ho_so_id: int, docs: list[dict], db_path: Path | None = None) -> 
         for doc in docs:
             data = {k: v for k, v in doc.items() if not k.startswith("_") and k != "da_soat"}
             conn.execute(
-                "UPDATE tai_lieu SET du_lieu = ?, nguon = ? WHERE ho_so_id = ? AND stt = ?",
-                (_dump(data), _dump(doc.get("_nguon", {})), ho_so_id, doc["stt"]),
+                "UPDATE tai_lieu SET du_lieu = ?, nguon = ?, da_soat = COALESCE(?, da_soat) "
+                "WHERE ho_so_id = ? AND stt = ?",
+                (_dump(data), _dump(doc.get("_nguon", {})),
+                 None if "da_soat" not in doc else int(bool(doc["da_soat"])), ho_so_id, doc["stt"]),
             )
 
 
