@@ -3,6 +3,7 @@
 - OCR (~1–2 GB RAM): nạp lần đầu cần dùng, giữ đến khi tắt app.
 - LLM (12–18 GB RAM): bật llama-server khi cần; tự TẮT sau LLM_IDLE_SECONDS không dùng
   để trả RAM cho máy.
+- warm_up(): nạp sẵn cả hai ngay khi mở app (luồng nền) để lúc bấm "Xử lý" không phải chờ.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import time
 
 from app.llm import LlamaServer, LlmClient
 
-LLM_IDLE_SECONDS = 600
+LLM_IDLE_SECONDS = 1800  # 30 phút không dùng thì tắt LLM để trả RAM
 
 
 class OcrService:
@@ -72,3 +73,20 @@ class LlmService:
             time.sleep(15)
             if self.running and time.monotonic() - self._last_used > self.idle_seconds:
                 self.stop()
+
+
+def warm_up(ocr: OcrService, llm: LlmService, log=print) -> None:
+    """Nạp sẵn OCR rồi LLM ở luồng nền. Lỗi (thiếu model...) chỉ ghi log, không làm hỏng app."""
+
+    def run():
+        import time as _t
+
+        for name, fn in (("OCR", ocr.get), ("LLM", llm.client)):
+            t0 = _t.perf_counter()
+            try:
+                fn()
+                log(f"Đã nạp sẵn {name}: {_t.perf_counter() - t0:.1f}s")
+            except Exception as e:  # noqa: BLE001
+                log(f"Không nạp sẵn được {name}: {e}")
+
+    threading.Thread(target=run, daemon=True, name="warm-up").start()

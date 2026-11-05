@@ -1,9 +1,9 @@
 """Trích xuất trường dữ liệu TT05 cho từng văn bản: luật trước, LLM sau, rồi gộp + kiểm tra.
 
-- Luật: tên loại, số, ký hiệu, ngày ban hành, độ mật, độ khẩn, tờ số.
-- LLM: cơ quan ban hành (chuẩn hóa viết hoa), trích yếu, từ khóa, ngôn ngữ, người ký;
-  đồng thời trả lại số/ký hiệu/ngày/tên loại để ĐỐI CHIẾU — luật và LLM khác nhau thì
-  ghi vào cột "Cần kiểm tra" để người dùng soát.
+- Luật: tên loại, số, ký hiệu, ngày ban hành, độ mật, độ khẩn, tờ số, ngôn ngữ.
+- LLM: cơ quan ban hành (chuẩn hóa viết hoa), trích yếu, từ khóa, người ký, chức vụ.
+  Chỉ khi luật KHÔNG đọc được tên loại / số ký hiệu / ngày thì mới hỏi thêm LLM (và đánh dấu
+  "Cần kiểm tra"). LLM chỉ được gửi đoạn trích cần thiết, trả JSON tên trường ngắn — để nhanh.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import re
 from collections import Counter
 
 from app.llm import LlmClient
-from app.ocr import lines_to_text
+from app.ocr import group_rows, lines_to_text
 from app.rules import (
     DO_KHAN,
     DO_MAT,
@@ -30,56 +30,70 @@ from app.segment import Document
 from app.tt05 import defaults, inherited_keys
 
 LOW_OCR = 0.80
-FIRST_PAGE_CHARS = 2500  # đủ phần đầu văn bản (cơ quan, số, ngày, tên loại, trích yếu)
-LAST_PAGE_CHARS = 1000  # phần cuối trang cuối (người ký)
+HEAD_CHARS = 900  # đầu văn bản: cơ quan, số, ngày, tên loại, trích yếu, vài dòng căn cứ (cho từ khóa)
+SIG_ROWS = 8  # số dòng cuối của trang cuối: khối chữ ký (chức vụ, người ký)
 
-NGON_NGU = ["Tiếng Việt", "Tiếng Anh", "Tiếng Pháp", "Tiếng Trung", "Tiếng Nga", "Khác"]
-
-LLM_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "ten_loai_tai_lieu": {"type": "string"},
-        "so_ky_hieu": {"type": "string"},
-        "ngay_ban_hanh": {"type": "string", "pattern": "^([0-9]{2}/[0-9]{2}/[0-9]{4})?$"},
-        "co_quan_ban_hanh": {"type": "string"},
-        "trich_yeu_noi_dung": {"type": "string"},
-        "tu_khoa": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
-        "ngon_ngu": {"type": "string", "enum": NGON_NGU},
-        "nguoi_ky": {"type": "string"},
-        "chuc_vu_nguoi_ky": {"type": "string"},
-    },
-    "required": [
-        "ten_loai_tai_lieu", "so_ky_hieu", "ngay_ban_hanh", "co_quan_ban_hanh",
-        "trich_yeu_noi_dung", "tu_khoa", "ngon_ngu", "nguoi_ky", "chuc_vu_nguoi_ky",
-    ],
-    "additionalProperties": False,
+# Tên trường NGẮN để LLM phải viết ít token nhất (mỗi token ~0.1s trên CPU).
+LLM_BASE = {
+    "co_quan": {"type": "string"},
+    "trich_yeu": {"type": "string"},
+    "tu_khoa": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
+    "nguoi_ky": {"type": "string"},
+    "chuc_vu": {"type": "string"},
+}
+# Chỉ hỏi thêm khi LUẬT không đọc được (không bắt LLM đọc lại cái luật đã có -> nhanh hơn).
+LLM_FALLBACK = {
+    "ten_loai": {"type": "string"},
+    "so_ky_hieu": {"type": "string"},
+    "ngay": {"type": "string", "pattern": "^([0-9]{2}/[0-9]{2}/[0-9]{4})?$"},
 }
 
+# Giữ NGUYÊN câu này giữa các văn bản: llama.cpp nhớ phần đã đọc, văn bản sau không phải đọc lại.
 LLM_SYSTEM = (
-    "Bạn là chuyên viên lưu trữ, trích xuất thông tin văn bản hành chính Việt Nam theo thể thức "
-    "Nghị định 30/2020/NĐ-CP và Thông tư 05/2025/TT-BNV. Đầu vào là văn bản OCR (có thể sai chính "
-    "tả nhẹ; '|' ngăn cách 2 cột trên cùng một dòng). Quy tắc:\n"
-    "- ten_loai_tai_lieu: tên loại văn bản, viết hoa chữ cái đầu (Quyết định, Công văn, Tờ trình...). "
-    "Không có tên loại mà có 'V/v' dưới số ký hiệu thì là 'Công văn'.\n"
-    "- so_ky_hieu: giữ NGUYÊN số và ký hiệu sau chữ 'Số:', không thêm bớt, không diễn giải.\n"
-    "- ngay_ban_hanh: ngày ở dòng 'địa danh, ngày ... tháng ... năm ...', dạng dd/mm/yyyy.\n"
-    "- co_quan_ban_hanh: cơ quan ở góc trên bên trái, ghép các dòng, viết hoa chữ cái đầu và "
-    "tên riêng theo quy tắc chính tả (ví dụ: Ủy ban nhân dân tỉnh An Bình).\n"
-    "- trich_yeu_noi_dung: trích yếu ngay dưới tên loại (hoặc dòng 'V/v'), sửa lỗi chính tả, "
-    "viết đầy đủ từ viết tắt (giữ nguyên 'V/v').\n"
-    "- tu_khoa: 3–5 từ khóa ngắn về VẤN ĐỀ mà văn bản đề cập, lấy từ chính văn bản. KHÔNG dùng "
-    "tên loại văn bản, tên cơ quan, địa danh, tên người làm từ khóa.\n"
-    "- nguoi_ky, chuc_vu_nguoi_ky: ở phần chữ ký cuối văn bản.\n"
-    "Không đoán: trường nào không có trong văn bản thì để chuỗi rỗng."
+    "Bạn trích xuất thông tin văn bản hành chính Việt Nam từ đoạn trích OCR (có thể sai chính tả nhẹ; "
+    "'|' ngăn 2 cột trên cùng dòng). Trả JSON:\n"
+    "- co_quan: cơ quan ban hành (dòng [CƠ QUAN]), viết hoa đúng chính tả, ví dụ 'Ủy ban nhân dân tỉnh An Bình'.\n"
+    "- trich_yeu: trích yếu nội dung ngay dưới tên loại hoặc dòng 'V/v'; sửa chính tả, viết đầy đủ từ viết tắt, giữ 'V/v'.\n"
+    "- tu_khoa: 3-5 từ khóa về vấn đề văn bản đề cập; không dùng tên loại văn bản, cơ quan, địa danh, tên người.\n"
+    "- nguoi_ky, chuc_vu: người ký và chức vụ trong phần [CHỮ KÝ].\n"
+    "- ten_loai (Quyết định, Công văn...), so_ky_hieu (giữ nguyên sau 'Số:'), ngay (dd/mm/yyyy): nếu được hỏi.\n"
+    "Trường nào không có thì để chuỗi rỗng, không đoán."
 )
 
 
-def document_text(doc: Document) -> str:
-    text = lines_to_text(doc.pages[0].lines)[:FIRST_PAGE_CHARS]
-    if len(doc.pages) > 1:
-        last = lines_to_text(doc.pages[-1].lines)
-        text += "\n--- phần cuối văn bản (trang cuối) ---\n" + last[-LAST_PAGE_CHARS:]
-    return text
+def llm_schema(rule: dict) -> dict:
+    props = dict(LLM_BASE)
+    if not rule["ten_loai_tai_lieu"]:
+        props["ten_loai"] = LLM_FALLBACK["ten_loai"]
+    if not (rule["so_cua_tai_lieu"] and rule["ky_hieu_cua_tai_lieu"]):
+        props["so_ky_hieu"] = LLM_FALLBACK["so_ky_hieu"]
+    if not rule["ngay_ban_hanh"]:
+        props["ngay"] = LLM_FALLBACK["ngay"]
+    return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
+
+
+def document_excerpt(doc: Document, rule: dict) -> str:
+    """Chỉ gửi LLM phần cần thiết thay vì cả văn bản — LLM đọc ít hơn thì nhanh hơn."""
+    first_text = lines_to_text(doc.pages[0].lines)
+    parts = []
+    if rule["_co_quan_tho"]:
+        parts.append(f"[CƠ QUAN] {rule['_co_quan_tho']}")
+    parts.append("[ĐẦU VĂN BẢN]\n" + first_text[:HEAD_CHARS])
+    if len(doc.pages) > 1 or len(first_text) > HEAD_CHARS:  # chữ ký chưa nằm trong phần đầu
+        rows = group_rows(doc.pages[-1].lines)[-SIG_ROWS:]
+        parts.append("[CHỮ KÝ]\n" + "\n".join("   |   ".join(l.text for l in r) for r in rows))
+    return "\n\n".join(parts)
+
+
+VI_CHARS = set("ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ")
+
+
+def detect_language(doc: Document) -> str:
+    """Có đủ chữ cái tiếng Việt có dấu -> Tiếng Việt; không thì để trống cho người dùng kiểm tra."""
+    letters = [c for p in doc.pages[:2] for l in p.lines for c in l.text.lower() if c.isalpha()]
+    if not letters:
+        return ""
+    return "Tiếng Việt" if sum(c in VI_CHARS for c in letters) / len(letters) > 0.05 else ""
 
 
 def rule_fields(doc: Document) -> dict:
@@ -98,11 +112,7 @@ def rule_fields(doc: Document) -> dict:
     }
 
 
-def _same(a: str, b: str) -> bool:
-    return key_text(a) == key_text(b)
-
-
-def merge(rule: dict, llm: dict | None) -> tuple[dict, dict, list[str]]:
+def merge(rule: dict, llm: dict | None, ngon_ngu: str) -> tuple[dict, dict, list[str]]:
     """Gộp kết quả luật + LLM. Trả về (giá trị, nguồn từng trường, cảnh báo)."""
     out, src, warn = {}, {}, []
     llm = llm or {}
@@ -110,28 +120,27 @@ def merge(rule: dict, llm: dict | None) -> tuple[dict, dict, list[str]]:
     def pick(key: str, rule_val: str, llm_val: str, label: str) -> None:
         if rule_val:
             out[key], src[key] = rule_val, "luật"
-            if llm_val and not _same(rule_val, llm_val):
-                warn.append(f"{label}: luật đọc '{rule_val}', LLM đọc '{llm_val}'")
         elif llm_val:
             out[key], src[key] = llm_val, "LLM"
+            warn.append(f"{label} do AI đọc (luật không tìm thấy) — kiểm tra lại")
         else:
             out[key], src[key] = "", ""
             warn.append(f"Không tìm thấy {label.lower()}")
 
-    llm_skh = parse_so_ky_hieu("Số: " + llm.get("so_ky_hieu", "")) if llm.get("so_ky_hieu") else None
-    pick("ten_loai_tai_lieu", rule["ten_loai_tai_lieu"], llm.get("ten_loai_tai_lieu", ""), "Tên loại")
+    llm_skh = parse_so_ky_hieu("Số: " + llm["so_ky_hieu"]) if llm.get("so_ky_hieu") else None
+    pick("ten_loai_tai_lieu", rule["ten_loai_tai_lieu"], llm.get("ten_loai", ""), "Tên loại")
     pick("so_cua_tai_lieu", rule["so_cua_tai_lieu"], llm_skh.so if llm_skh else "", "Số")
     pick("ky_hieu_cua_tai_lieu", rule["ky_hieu_cua_tai_lieu"], llm_skh.ky_hieu if llm_skh else "", "Ký hiệu")
-    pick("ngay_ban_hanh", rule["ngay_ban_hanh"], llm.get("ngay_ban_hanh", ""), "Ngày ban hành")
+    pick("ngay_ban_hanh", rule["ngay_ban_hanh"], llm.get("ngay", ""), "Ngày ban hành")
 
     for key, llm_key in [
-        ("co_quan_ban_hanh", "co_quan_ban_hanh"),
-        ("trich_yeu_noi_dung", "trich_yeu_noi_dung"),
-        ("ngon_ngu", "ngon_ngu"),
+        ("co_quan_ban_hanh", "co_quan"),
+        ("trich_yeu_noi_dung", "trich_yeu"),
         ("nguoi_ky", "nguoi_ky"),
-        ("chuc_vu_nguoi_ky", "chuc_vu_nguoi_ky"),
+        ("chuc_vu_nguoi_ky", "chuc_vu"),
     ]:
-        out[key], src[key] = llm.get(llm_key, ""), "LLM" if llm.get(llm_key) else ""
+        val = (llm.get(llm_key) or "").strip()
+        out[key], src[key] = val, "LLM" if val else ""
     if not out["co_quan_ban_hanh"] and rule["_co_quan_tho"]:
         out["co_quan_ban_hanh"], src["co_quan_ban_hanh"] = rule["_co_quan_tho"], "luật (chưa chuẩn hóa)"
     if not out["trich_yeu_noi_dung"]:
@@ -141,6 +150,9 @@ def merge(rule: dict, llm: dict | None) -> tuple[dict, dict, list[str]]:
         k.strip() for k in llm.get("tu_khoa", []) if k.strip() and key_text(k) not in loai
     )
     src["tu_khoa"] = "LLM" if out["tu_khoa"] else ""
+    out["ngon_ngu"], src["ngon_ngu"] = ngon_ngu, "luật" if ngon_ngu else ""
+    if not ngon_ngu:
+        warn.append("Không xác định được ngôn ngữ")
 
     for key in ("do_mat", "do_khan", "to_so"):
         out[key], src[key] = rule[key], "luật" if rule[key] else ""
@@ -153,9 +165,9 @@ def extract_document(doc: Document, llm: LlmClient | None, ho_so: dict, stt: int
     llm_out, timings = None, {}
     if llm is not None:
         llm_out, timings = llm.extract_json(
-            LLM_SYSTEM, f"Văn bản OCR:\n\n{document_text(doc)}", LLM_SCHEMA, max_tokens=2048
+            LLM_SYSTEM, document_excerpt(doc, rule), llm_schema(rule), max_tokens=1024
         )
-    values, sources, warnings = merge(rule, llm_out)
+    values, sources, warnings = merge(rule, llm_out, detect_language(doc))
 
     rec = defaults("tai_lieu")
     for key in inherited_keys():

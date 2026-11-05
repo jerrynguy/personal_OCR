@@ -46,6 +46,8 @@ def main() -> int:
         return 1
 
     he_thong = call("GET", "/he-thong").json()
+    if he_thong.get("nguon_dien"):
+        print(f"!!! CẢNH BÁO: máy {he_thong['nguon_dien']} -> sẽ chạy chậm hơn nhiều lần")
     print("Model OCR:", ", ".join(f"{k} {'OK' if v else 'THIẾU'}" for k, v in he_thong["model_ocr"].items()))
     print("Model LLM:", he_thong["model_llm"] or "(chưa chọn)")
 
@@ -62,27 +64,28 @@ def main() -> int:
 
     job = call("POST", f"/ho-so/{hid}/xu-ly", json={}).json()
     print(f"3) Bắt đầu xử lý (mã {job['id']}). Tiến độ:")
-    last = ""
+    last = None
     t0 = time.time()
     while True:
         p = call("GET", f"/ho-so/{hid}/tien-do").json()
-        line = f"   [{p['elapsed']:4d}s] {p['stage_label']}"
-        if p["total"]:
-            line += f" {p['current']}/{p['total']}"
-        if p["message"]:
-            line += f" — {p['message']}"
-        if p["eta_stage"]:
-            line += f" (còn ~{p['eta_stage']}s)"
-        if line.split("] ", 1)[1] != last:
+        key = (p["stage"], p["current"], p["message"])
+        if key != last:  # chỉ in khi giai đoạn / tiến độ thay đổi
+            line = f"   [{p['elapsed']:4d}s] {p['stage_label']}"
+            if p["total"]:
+                line += f" {p['current']}/{p['total']}"
+            if p["message"]:
+                line += f" — {p['message']}"
             print(line)
-            last = line.split("] ", 1)[1]
+            last = key
         if p["done"]:
             break
         time.sleep(1)
     if p["stage"] != "xong":
         print(f"   Không thành công: {p['stage_label']} {p['error']}")
         return 1
-    print(f"   Xong sau {time.time() - t0:.0f}s")
+    print(f"   Xong sau {time.time() - t0:.0f}s. Thời gian từng giai đoạn:")
+    for name, sec in p["thoi_gian_giai_doan"].items():
+        print(f"      {name:30s} {sec:6.1f}s")
 
     detail = call("GET", f"/ho-so/{hid}").json()
     print(f"\n4) Kết quả: {len(detail['tai_lieu'])} tài liệu")

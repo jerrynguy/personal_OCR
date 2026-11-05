@@ -48,20 +48,30 @@ class Job:
     started: float | None = None
     finished: float | None = None
     stage_started: float | None = None
+    stage_seconds: dict = field(default_factory=dict)  # thời gian thực tế của từng giai đoạn
     cancel_event: threading.Event = field(default_factory=threading.Event)
 
     def update(self, stage: str | None = None, current: int | None = None, total: int | None = None,
                message: str | None = None) -> None:
         if self.cancel_event.is_set():
             raise Cancelled()
-        if stage is not None and stage != self.stage:
-            self.stage, self.stage_started = stage, time.time()
+        if stage is not None:
+            self.set_stage(stage)
         if current is not None:
             self.current = current
         if total is not None:
             self.total = total
         if message is not None:
             self.message = message
+
+    def set_stage(self, stage: str) -> None:
+        """Đổi giai đoạn (không kiểm tra hủy) và cộng dồn thời gian của giai đoạn vừa xong."""
+        if stage == self.stage:
+            return
+        now = time.time()
+        if self.stage_started is not None:
+            self.stage_seconds[self.stage] = round(self.stage_seconds.get(self.stage, 0) + now - self.stage_started, 1)
+        self.stage, self.stage_started = stage, now
 
     @property
     def done(self) -> bool:
@@ -86,6 +96,7 @@ class Job:
             "done": self.done,
             "elapsed": round((self.finished or now) - self.started) if self.started else 0,
             "eta_stage": eta,
+            "thoi_gian_giai_doan": {STAGES.get(k, k): v for k, v in self.stage_seconds.items()},
         }
 
 
@@ -135,11 +146,12 @@ class JobQueue:
             job.started = time.time()
             try:
                 self._runner(job)
-                job.stage = "xong"
+                job.set_stage("xong")
             except Cancelled:
-                job.stage = "huy"
+                job.set_stage("huy")
             except Exception as e:  # noqa: BLE001
-                job.stage, job.error = "loi", f"{e.__class__.__name__}: {e}"
+                job.error = f"{e.__class__.__name__}: {e}"
+                job.set_stage("loi")
                 traceback.print_exc()
             finally:
                 job.finished = time.time()

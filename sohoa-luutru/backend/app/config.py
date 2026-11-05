@@ -37,10 +37,10 @@ VIETOCR_MODELS = {
     "vgg_transformer": ("vgg-transformer.yml", "vgg_transformer.pth"),
 }
 VIETOCR_WEIGHTS_URL = "https://vocr.vn/data/vietocr/{}"
-# Chốt sau bench (PDF mẫu): transformer + cắt dòng CER 0.34% (~11s/trang),
-# seq2seq + cắt dòng CER 0.86% (~4s/trang). OCR không phải nút thắt (LLM chậm hơn nhiều)
-# nên ưu tiên độ chính xác.
-DEFAULT_REC_MODEL = "vgg_transformer"
+# Bench (PDF mẫu): seq2seq + cắt dòng CER 0.86% (~4s/trang); transformer + cắt dòng CER 0.34%
+# (~11s/trang). Chênh lệch chỉ ở dấu câu cuối dòng (; . :), không ảnh hưởng trường dữ liệu
+# -> chọn seq2seq vì nhanh gấp ~2.5 lần.
+DEFAULT_REC_MODEL = "vgg_seq2seq"
 # Dòng rộng hơn N lần chiều cao sẽ được cắt tại khoảng trắng giữa các từ trước khi đọc.
 DEFAULT_SPLIT_RATIO = 12.0
 

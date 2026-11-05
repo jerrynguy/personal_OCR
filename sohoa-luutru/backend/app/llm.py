@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import socket
 import subprocess
@@ -19,6 +20,7 @@ from pathlib import Path
 import requests
 
 from app.config import ACTIVE_LLM_FILE, LLAMA_CPP_DIR, LLM_CTX, LOGS_DIR, default_threads
+from app.winperf import disable_power_throttling
 
 SERVER_EXE = "llama-server.exe" if sys.platform == "win32" else "llama-server"
 
@@ -82,7 +84,8 @@ class LlamaServer:
             "--api-key", self.api_key,
             "-c", str(ctx),
             "-np", "1",  # 1 người dùng -> dồn toàn bộ ngữ cảnh cho 1 luồng xử lý
-            "-t", str(threads),
+            "-t", str(threads),  # sinh chữ: số nhân thật
+            "-tb", str(os.cpu_count() or threads),  # đọc prompt: dùng mọi luồng (nhanh hơn rõ)
             "-ngl", str(gpu_layers),
             "--jinja",  # dùng đúng chat template đi kèm model
             "--no-webui",
@@ -103,6 +106,8 @@ class LlamaServer:
             cwd=str(self.exe.parent),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
+        # llama-server không có cửa sổ -> Windows coi là tiến trình nền và hạ tốc độ. Tắt việc đó.
+        disable_power_throttling(getattr(self.proc, "_handle", None))
         while time.perf_counter() - t0 < timeout:
             if self.proc.poll() is not None:
                 raise RuntimeError(

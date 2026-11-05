@@ -150,8 +150,8 @@ theo bố cục, 2 cột tiêu đề cách nhau bằng `|`), `.ocr.json` (toạ 
 | Chạy chậm | Thử `--det-side 1280` hoặc `--threads 8` |
 
 **Cấu hình đã chốt** (bench trên PDF mẫu): `PP-OCRv5_mobile_det` @1920px + VietOCR
-`vgg_transformer` + cắt dòng dài → CER 0.34%, ~11 giây/trang. Chế độ nhanh:
-`--rec vgg_seq2seq` (CER 0.86%, ~4 giây/trang).
+`vgg_seq2seq` + cắt dòng dài → CER 0.86%, ~4 giây/trang. Bản `vgg_transformer` (CER 0.34%,
+~11 giây/trang) chỉ hơn ở dấu câu cuối dòng nên không dùng mặc định (`--rec vgg_transformer`).
 
 ---
 
@@ -244,9 +244,10 @@ với cùng bài test.
 
 - **Luật** (theo thể thức NĐ 30, chịu được lỗi dấu của OCR): tên loại, số, ký hiệu, ngày ban hành,
   độ mật, độ khẩn, tờ số. Giữ NGUYÊN số/ký hiệu gốc.
-- **LLM**: cơ quan ban hành (chuẩn hóa viết hoa), trích yếu, từ khóa, ngôn ngữ, người ký.
-  LLM cũng đọc lại số/ký hiệu/ngày/tên loại để **đối chiếu** — khác với luật thì ghi vào cột
-  "Cần kiểm tra" (giá trị của luật được giữ).
+- **LLM**: cơ quan ban hành (chuẩn hóa viết hoa), trích yếu, từ khóa, người ký, chức vụ. Chỉ khi
+  luật KHÔNG đọc được tên loại / số ký hiệu / ngày thì mới hỏi thêm LLM, và đánh dấu "Cần kiểm tra".
+  LLM chỉ nhận đoạn trích cần thiết (cơ quan, đầu văn bản, khối chữ ký) và trả JSON tên trường ngắn
+  — để nhanh (mỗi token LLM ~0,1 giây trên CPU).
 - **Kế thừa từ hồ sơ**: thời hạn lưu trữ, mức độ tiếp cận, mức độ tin cậy, tình trạng vật lý,
   ký hiệu thông tin, chế độ/tình trạng dự phòng.
 - **Tự tính**: mã lưu trữ tài liệu (= mã hồ sơ + số thứ tự), số trang, số tờ, tệp tin.
@@ -320,6 +321,18 @@ Backend FastAPI là lớp nằm giữa giao diện (Bước 6) và toàn bộ ph
 - **Sửa thông tin hồ sơ** (thời hạn lưu trữ, mã hồ sơ...) thì tự cập nhật xuống các tài liệu,
   trừ ô đã sửa tay; các trường tự tính của hồ sơ được tính lại.
 - CSDL cũ (tạo ở Bước 4) được tự nâng cấp, không mất dữ liệu.
+
+**Tốc độ** (lần chạy đầu trên ZBook mất 9 phút cho 3 trang — máy vừa sập nguồn vì hết pin nên
+bị hạ xung, mọi giai đoạn chậm 3–5 lần so với Bước 3). Đã sửa:
+
+- **Nạp sẵn OCR + LLM ngay khi mở backend** (luồng nền) → bấm xử lý không phải chờ nạp model.
+  LLM giữ trong RAM 30 phút sau lần dùng cuối.
+- **Không cho Windows hạ tốc độ tiến trình nền** (power throttling / EcoQoS) cho backend và llama-server;
+  backend cảnh báo khi máy chạy bằng pin hoặc đang bật Battery saver.
+- OCR dùng `vgg_seq2seq` (nhanh gấp ~2,5 lần).
+- LLM đọc ít hơn (đoạn trích thay vì cả trang) và viết ít hơn (5 trường, tên ngắn, không đọc lại
+  số/ký hiệu/ngày khi luật đã có); đọc prompt bằng mọi luồng CPU (`-tb`).
+- Script kiểm tra in thời gian thực tế của từng giai đoạn.
 
 Dữ liệu mỗi hồ sơ: `data\ho_so\<id>\` (PDF gốc, ảnh + OCR từng trang, file xuất).
 

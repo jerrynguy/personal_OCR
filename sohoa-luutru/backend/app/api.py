@@ -43,7 +43,8 @@ from app.export import export_csv, export_xlsx, split_pdf
 from app.jobs import JobQueue
 from app.pdf_render import low_dpi_warning
 from app.pipeline import clear_pages, ho_so_dir, ocr_cache, pages_dir, refresh_ho_so, run_job
-from app.services import LlmService, OcrService
+from app.services import LlmService, OcrService, warm_up
+from app.winperf import disable_power_throttling, power_status
 from app.tt05 import load_schema
 
 MAX_PDF_MB = 500
@@ -63,7 +64,7 @@ def _public(info: dict) -> dict:
 
 
 def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
-               frontend_dir: Path | None = None) -> FastAPI:
+               frontend_dir: Path | None = None, warmup: bool = True) -> FastAPI:
     token = token if token is not None else secrets.token_urlsafe(24)
     ocr = OcrService(ocr_factory)
     llm = LlmService()
@@ -71,6 +72,9 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
 
     @asynccontextmanager
     async def lifespan(_app):
+        disable_power_throttling()  # backend chạy nền cũng không bị Windows hạ tốc độ
+        if warmup:
+            warm_up(ocr, llm)  # nạp sẵn OCR + LLM ở luồng nền ngay khi mở app
         yield
         llm.stop()  # tắt app -> tắt luôn llama-server, trả RAM
 
@@ -129,6 +133,7 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             "model_llm_co_file": bool(llm_path) and Path(llm_path).exists(),
             "ocr_da_nap": ocr.loaded,
             "llm_dang_chay": llm.running,
+            "nguon_dien": power_status(),
             "hang_doi": [j.to_dict() for j in jobs.active()],
         }
 

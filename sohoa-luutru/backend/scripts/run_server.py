@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import uvicorn  # noqa: E402
 
 from app.api import create_app  # noqa: E402
+from app.winperf import power_status  # noqa: E402
 
 
 def main() -> int:
@@ -23,10 +24,16 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=int(os.environ.get("SOHOA_PORT", 8765)))
     parser.add_argument("--dev", action="store_true", help="Không cần token, bật /docs, cho phép giao diện ở cổng 3000")
     parser.add_argument("--frontend", type=Path, help="Thư mục giao diện đã build (Bước 6)")
+    parser.add_argument("--no-warmup", action="store_true", help="Không nạp sẵn OCR + LLM khi khởi động")
     args = parser.parse_args()
 
+    warn = power_status()
+    if warn:
+        print(f"!!! CẢNH BÁO: máy {warn} -> CPU bị hạ xung, xử lý sẽ CHẬM hơn nhiều lần. Hãy cắm sạc / tắt Battery saver.")
     token = "" if args.dev else os.environ.get("SOHOA_TOKEN")
-    app = create_app(token=token, dev=args.dev, frontend_dir=args.frontend)
+    app = create_app(token=token, dev=args.dev, frontend_dir=args.frontend, warmup=not args.no_warmup)
+    if not args.no_warmup:
+        print("Đang nạp sẵn OCR + LLM ở nền (~30–60 giây)... có thể dùng ngay, việc xử lý sẽ tự chờ nạp xong.")
     print(f"Backend: http://127.0.0.1:{args.port}")
     if args.dev:
         print(f"Chế độ thử nghiệm (không token). Trang API: http://127.0.0.1:{args.port}/docs")
