@@ -105,6 +105,10 @@ def main() -> int:
                 print(f"  {lab.get(k, k):48s} {str(rec.get(k, ''))[:70]:70s} {('[' + src + ']') if src else ''}")
             if rec["can_kiem_tra"]:
                 print(f"  >> Cần kiểm tra: {rec['can_kiem_tra']}")
+            t = rec.get("_llm_timings") or {}
+            if t.get("prompt_n") is not None:
+                print(f"  LLM: đọc {t['prompt_n']} token ({(t.get('prompt_ms') or 0) / 1000:.1f}s), "
+                      f"viết {t['predicted_n']} token ({(t.get('predicted_ms') or 0) / 1000:.1f}s)")
     finally:
         if server:
             server.stop()

@@ -30,34 +30,38 @@ from app.segment import Document
 from app.tt05 import defaults, inherited_keys
 
 LOW_OCR = 0.80
-HEAD_CHARS = 900  # đầu văn bản: cơ quan, số, ngày, tên loại, trích yếu, vài dòng căn cứ (cho từ khóa)
+HEAD_CHARS = 700  # đầu văn bản (đã bỏ quốc hiệu, số, ngày): tên loại, trích yếu, vài dòng căn cứ (cho từ khóa)
 SIG_ROWS = 8  # số dòng cuối của trang cuối: khối chữ ký (chức vụ, người ký)
 
 # Tên trường NGẮN để LLM phải viết ít token nhất (mỗi token ~0.1s trên CPU).
+# maxLength / maxItems là giới hạn CỨNG (llama.cpp biến thành grammar): model không thể viết lặp
+# vô tận trong một trường (đã gặp khi chạy thật: kẹt trong danh sách từ khóa đến hết max_tokens).
 LLM_BASE = {
-    "co_quan": {"type": "string"},
-    "trich_yeu": {"type": "string"},
-    "tu_khoa": {"type": "array", "items": {"type": "string"}, "maxItems": 5},
-    "nguoi_ky": {"type": "string"},
-    "chuc_vu": {"type": "string"},
+    "co_quan": {"type": "string", "maxLength": 150},
+    "trich_yeu": {"type": "string", "maxLength": 400},
+    "tu_khoa": {"type": "array", "items": {"type": "string", "maxLength": 40}, "maxItems": 5},
+    "nguoi_ky": {"type": "string", "maxLength": 60},
+    "chuc_vu": {"type": "string", "maxLength": 80},
 }
 # Chỉ hỏi thêm khi LUẬT không đọc được (không bắt LLM đọc lại cái luật đã có -> nhanh hơn).
 LLM_FALLBACK = {
-    "ten_loai": {"type": "string"},
-    "so_ky_hieu": {"type": "string"},
+    "ten_loai": {"type": "string", "maxLength": 40},
+    "so_ky_hieu": {"type": "string", "maxLength": 40},
     "ngay": {"type": "string", "pattern": "^([0-9]{2}/[0-9]{2}/[0-9]{4})?$"},
 }
+LLM_MAX_TOKENS = 768  # chặn mọi trường hợp lặp còn sót (bình thường ~100 token + phần suy nghĩ ngắn)
 
 # Giữ NGUYÊN câu này giữa các văn bản: llama.cpp nhớ phần đã đọc, văn bản sau không phải đọc lại.
 LLM_SYSTEM = (
     "Bạn trích xuất thông tin văn bản hành chính Việt Nam từ đoạn trích OCR (có thể sai chính tả nhẹ; "
     "'|' ngăn 2 cột trên cùng dòng). Trả JSON:\n"
-    "- co_quan: cơ quan ban hành (dòng [CƠ QUAN]), viết hoa đúng chính tả, ví dụ 'Ủy ban nhân dân tỉnh An Bình'.\n"
+    "- co_quan: cơ quan ban hành (dòng [CƠ QUAN]), KHÔNG viết hoa toàn bộ: chỉ viết hoa chữ đầu và tên riêng, "
+    "ví dụ 'Ủy ban nhân dân tỉnh An Bình', 'Sở Nội vụ tỉnh An Bình'.\n"
     "- trich_yeu: trích yếu nội dung ngay dưới tên loại hoặc dòng 'V/v'; sửa chính tả, viết đầy đủ từ viết tắt, giữ 'V/v'.\n"
     "- tu_khoa: 3-5 từ khóa về vấn đề văn bản đề cập; không dùng tên loại văn bản, cơ quan, địa danh, tên người.\n"
     "- nguoi_ky, chuc_vu: người ký và chức vụ trong phần [CHỮ KÝ].\n"
     "- ten_loai (Quyết định, Công văn...), so_ky_hieu (giữ nguyên sau 'Số:'), ngay (dd/mm/yyyy): nếu được hỏi.\n"
-    "Trường nào không có thì để chuỗi rỗng, không đoán."
+    "Trường nào không có thì để chuỗi rỗng, không đoán. Viết JSON gọn trên một dòng."
 )
 
 
@@ -72,9 +76,20 @@ def llm_schema(rule: dict) -> dict:
     return {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}
 
 
+def _body_text(doc: Document) -> str:
+    """Trang đầu, BỎ các dòng luật đã đọc (quốc hiệu, tiêu ngữ, dòng 'Số: ... | địa danh, ngày ...')."""
+    rows = []
+    for row in group_rows(doc.pages[0].lines):
+        k = key_text(" ".join(l.text for l in row))
+        if "CONG HOA" in k or "DOC LAP" in k or any(parse_so_ky_hieu(l.text) for l in row):
+            continue
+        rows.append("   |   ".join(l.text for l in row))
+    return "\n".join(rows)
+
+
 def document_excerpt(doc: Document, rule: dict) -> str:
     """Chỉ gửi LLM phần cần thiết thay vì cả văn bản — LLM đọc ít hơn thì nhanh hơn."""
-    first_text = lines_to_text(doc.pages[0].lines)
+    first_text = _body_text(doc)
     parts = []
     if rule["_co_quan_tho"]:
         parts.append(f"[CƠ QUAN] {rule['_co_quan_tho']}")
@@ -165,7 +180,7 @@ def extract_document(doc: Document, llm: LlmClient | None, ho_so: dict, stt: int
     llm_out, timings = None, {}
     if llm is not None:
         llm_out, timings = llm.extract_json(
-            LLM_SYSTEM, document_excerpt(doc, rule), llm_schema(rule), max_tokens=1024
+            LLM_SYSTEM, document_excerpt(doc, rule), llm_schema(rule), max_tokens=LLM_MAX_TOKENS
         )
     values, sources, warnings = merge(rule, llm_out, detect_language(doc))
 
