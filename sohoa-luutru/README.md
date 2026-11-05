@@ -300,10 +300,9 @@ Dùng kết quả `ket_qua.json` của Bước 3 (không chạy lại OCR/LLM), 
 
 1. **Lưu vào SQLite** `data\sohoa.db` (bảng phong / ho_so / tai_lieu). Lưu lại cùng mã hồ sơ sẽ ghi đè.
 2. **Xuất** vào `data\xuat\<mã hồ sơ>\`:
-   - `<mã hồ sơ>.xlsx` — 4 sheet: **Phông**, **Hồ sơ** (tên trường | giá trị), **Tài liệu** (mỗi tài liệu
-     một dòng, 23 cột theo Điều 4 + 8 cột bổ sung nền xám, ô "Cần kiểm tra" tô vàng, có lọc/cố định
-     tiêu đề), **Mục lục văn bản** (STT | Số, ký hiệu | Ngày tháng | Tên loại và trích yếu | Tờ số | Ghi chú)
-   - `csv\` — cùng nội dung, mỗi sheet một file CSV (UTF-8 có BOM, Excel mở đúng tiếng Việt)
+   - `<mã hồ sơ>.xlsx` — **chỉ dữ liệu tài liệu**: 23 cột theo **điểm c khoản 1 Điều 4 TT 05/2025/TT-BNV**,
+     đúng thứ tự và tên trong Thông tư, mỗi văn bản một dòng (xem bảng "File xuất ra có gì?" ở cuối)
+   - `<mã hồ sơ>.csv` — cùng nội dung (UTF-8 có BOM, Excel mở đúng tiếng Việt)
    - `tai_lieu\<mã lưu trữ>.pdf` — PDF hồ sơ tách thành từng tài liệu (cột "Tệp tin tài liệu")
 
 Cần cài thêm thư viện Excel: `pip install -r requirements.txt` (thêm `openpyxl`).
