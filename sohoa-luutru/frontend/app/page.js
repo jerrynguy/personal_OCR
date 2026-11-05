@@ -1,17 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, CheckCircle2, Loader2, Plus, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
-import FieldForm from '@/components/FieldForm';
+import DropZone from '@/components/DropZone';
+import NewHoSoDialog from '@/components/NewHoSoDialog';
 import { STATUS } from '@/lib/constants';
 
 export default function HomePage() {
   const router = useRouter();
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [newFile, setNewFile] = useState(null); // PDF vừa chọn -> mở hộp thoại tạo hồ sơ
+  const picker = useRef(null);
 
   const load = useCallback(async () => {
     try {
@@ -32,10 +34,22 @@ export default function HomePage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Hồ sơ</h1>
-        <button className="btn btn-primary" onClick={() => setCreating(true)}>
-          <Plus size={16} /> Tạo hồ sơ
+        <button className="btn btn-primary" onClick={() => picker.current.click()}>
+          <Plus size={16} /> Tạo hồ sơ từ PDF
         </button>
+        <input
+          ref={picker}
+          type="file"
+          accept="application/pdf"
+          hidden
+          onChange={(e) => {
+            if (e.target.files[0]) setNewFile(e.target.files[0]);
+            e.target.value = '';
+          }}
+        />
       </div>
+
+      <DropZone onFile={setNewFile} compact={rows?.length > 0} title="Kéo thả file PDF scan của hồ sơ vào đây để tạo hồ sơ mới" />
 
       {error && <div className="card border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
@@ -57,7 +71,7 @@ export default function HomePage() {
             {rows?.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-gray-500">
-                  Chưa có hồ sơ nào. Bấm <b>Tạo hồ sơ</b> để bắt đầu.
+                  Chưa có hồ sơ nào. Kéo thả file PDF vào ô ở trên để bắt đầu.
                 </td>
               </tr>
             )}
@@ -107,86 +121,7 @@ export default function HomePage() {
         </table>
       </div>
 
-      {creating && <CreateDialog onClose={() => setCreating(false)} onCreated={(id) => router.push(`/ho-so/?id=${id}`)} />}
-    </div>
-  );
-}
-
-function CreateDialog({ onClose, onCreated }) {
-  const [schema, setSchema] = useState(null);
-  const [phong, setPhong] = useState({});
-  const [hoSo, setHoSo] = useState({});
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api('/schema').then((s) => {
-      setSchema(s);
-      const init = (fs) => Object.fromEntries(fs.map((f) => [f.key, f.mac_dinh || '']));
-      setPhong(init(s.phong));
-      setHoSo(init(s.ho_so));
-    });
-  }, []);
-
-  const submit = async () => {
-    if (!hoSo.ma_ho_so?.trim()) return setError('Cần nhập Mã hồ sơ');
-    setSaving(true);
-    try {
-      const res = await api('/ho-so', { method: 'POST', body: { phong, ho_so: hoSo } });
-      onCreated(res.id);
-    } catch (e) {
-      setError(e.message);
-      setSaving(false);
-    }
-  };
-
-  const manual = (fs) => fs.filter((f) => f.nguon === 'nhap_tay');
-
-  return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-6">
-      <div className="card w-full max-w-3xl">
-        <div className="flex items-center justify-between border-b px-5 py-3">
-          <h2 className="font-semibold">Tạo hồ sơ mới</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X size={18} />
-          </button>
-        </div>
-        {!schema ? (
-          <div className="p-6 text-sm text-gray-500">Đang tải…</div>
-        ) : (
-          <div className="space-y-5 p-5">
-            <section>
-              <h3 className="mb-2 text-sm font-semibold text-gray-700">Hồ sơ</h3>
-              <p className="mb-3 text-xs text-gray-500">
-                Các giá trị như thời hạn lưu trữ, mức độ tiếp cận… sẽ tự áp xuống mọi tài liệu trong hồ sơ.
-                Thời gian bắt đầu/kết thúc, số tờ, số trang, từ khóa sẽ tự tính sau khi xử lý.
-              </p>
-              <FieldForm
-                fields={manual(schema.ho_so)}
-                values={hoSo}
-                onChange={(k, v) => setHoSo((s) => ({ ...s, [k]: v }))}
-              />
-            </section>
-            <section>
-              <h3 className="mb-2 text-sm font-semibold text-gray-700">Phông lưu trữ</h3>
-              <FieldForm
-                fields={manual(schema.phong)}
-                values={phong}
-                onChange={(k, v) => setPhong((s) => ({ ...s, [k]: v }))}
-              />
-            </section>
-            {error && <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">{error}</div>}
-          </div>
-        )}
-        <div className="flex justify-end gap-2 border-t px-5 py-3">
-          <button className="btn btn-light" onClick={onClose}>
-            Hủy
-          </button>
-          <button className="btn btn-primary" onClick={submit} disabled={saving || !schema}>
-            {saving && <Loader2 size={14} className="animate-spin" />} Tạo hồ sơ
-          </button>
-        </div>
-      </div>
+      {newFile && <NewHoSoDialog file={newFile} onClose={() => setNewFile(null)} />}
     </div>
   );
 }

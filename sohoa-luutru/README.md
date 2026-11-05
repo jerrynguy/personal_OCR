@@ -408,10 +408,10 @@ và model LLM, để cài được trên máy **không có mạng** và tự ch�
 
 | Màn hình | Làm được gì |
 |---|---|
-| **Hồ sơ** | Danh sách hồ sơ (trạng thái, số tài liệu, số cần kiểm tra, đã soát); **Tạo hồ sơ** (form Phông + Hồ sơ sinh từ `tt05.json`) |
+| **Hồ sơ** | **Kéo thả PDF** ngay trên trang đầu → hộp thoại chỉ hỏi **Mã hồ sơ** (lấy sẵn từ tên file) + Tiêu đề (không bắt buộc); thông tin khác thu gọn, nhớ theo lần trước → **Tạo và xử lý**. Danh sách hồ sơ (trạng thái, số tài liệu, cần kiểm tra, đã soát) |
 | **Chi tiết hồ sơ** | Kéo thả PDF → tự xử lý; thanh tiến độ theo giai đoạn + thời gian còn lại + Hủy; xuất Excel / CSV / PDF từng tài liệu; xóa |
-| ↳ Soát tài liệu | Danh sách văn bản · ảnh trang (bấm vào ô nào thì **chữ tương ứng trên ảnh sáng vàng**, dòng OCR kém tin cậy viền đỏ) · 23 trường + cột bổ sung, nhãn nguồn từng ô (Luật / AI / Sửa tay / Từ hồ sơ / Tự tính), ô cần kiểm tra, nút **"Đã soát, sang văn bản tiếp"** |
-| ↳ Thông tin hồ sơ | Sửa Phông / Hồ sơ → tự cập nhật xuống tài liệu (trừ ô đã sửa tay) |
+| ↳ Soát tài liệu | Danh sách văn bản · ảnh trang (bấm vào ô nào thì **chữ tương ứng trên ảnh sáng vàng**, dòng OCR kém tin cậy viền đỏ) · trước hết chỉ hiện **các trường đọc từ văn bản** (tên loại, số, ký hiệu, ngày, cơ quan, trích yếu, từ khóa, người ký...); các trường quản lý tự điền gom trong mục thu gọn; nhãn nguồn từng ô; nút **"Đã soát, sang văn bản tiếp"** |
+| ↳ Thông tin hồ sơ | 4 trường chính (mã, tiêu đề, thời hạn, mức độ tiếp cận) + bảng "App tự tính"; trường khác thu gọn. Sửa → tự cập nhật xuống tài liệu (trừ ô đã sửa tay) |
 | ↳ Tách văn bản | Ảnh thu nhỏ các trang; bấm để đánh dấu trang đầu văn bản → xử lý lại (giữ công soát) |
 | **Model AI** | Xem model đang dùng; **dùng file .gguf có sẵn** (dán đường dẫn, không sao chép) hoặc **tải file lên**; nạp thử ngay, lỗi thì tự quay về model cũ; **Về mặc định** (`gpt-oss-20b-MXFP4.gguf`); xóa model đã tải lên |
 | **Kiểm tra máy** | Phần cứng, cách app chạy AI trên máy này, model đã có, cảnh báo chạy bằng pin |

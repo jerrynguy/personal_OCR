@@ -322,6 +322,8 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
         tmp.replace(dest)
         clear_pages(ho_so_id)  # PDF mới -> bỏ kết quả OCR cũ
         db.set_pdf(ho_so_id, str(dest), so_trang)
+        # Lưu ở ổ đĩa tên goc.pdf, nhưng "Tệp tin hồ sơ" ghi tên file gốc của người dùng
+        db.update_ho_so_info(ho_so_id, None, {"tep_tin_ho_so": Path(file.filename or "ho_so.pdf").name})
         return {"so_trang": so_trang, "ten_file": file.filename, "canh_bao": low_dpi_warning(dest)}
 
     @app.post("/api/ho-so/{ho_so_id}/xu-ly", status_code=202)

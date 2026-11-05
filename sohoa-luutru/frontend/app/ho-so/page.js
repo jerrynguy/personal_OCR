@@ -8,8 +8,10 @@ import {
 } from 'lucide-react';
 import { api, fileUrl, fmtSeconds, upload } from '@/lib/api';
 import { STATUS } from '@/lib/constants';
+import DropZone from '@/components/DropZone';
 import FieldForm from '@/components/FieldForm';
 import PageViewer from '@/components/PageViewer';
+import { DOC_MAIN, HO_SO_MAIN, PHONG_MAIN, splitFields } from '@/lib/fields';
 
 const READONLY_DOC = new Set(['stt', 'trang_pdf', 'diem_ocr', 'can_kiem_tra']);
 
@@ -98,7 +100,9 @@ export default function HoSoPage() {
           </div>
           <p className="truncate text-sm text-gray-600">{hs.tieu_de_ho_so || 'Chưa có tiêu đề hồ sơ'}</p>
           <p className="text-xs text-gray-400">
-            {info.co_pdf ? `${info.ten_pdf} · ${info.so_trang} trang · ${info.tai_lieu.length} tài liệu` : 'Chưa có file PDF'}
+            {info.co_pdf
+              ? `${hs.tep_tin_ho_so || info.ten_pdf} · ${info.so_trang} trang · ${info.tai_lieu.length} tài liệu`
+              : 'Chưa có file PDF'}
           </p>
         </div>
         <input ref={fileInput} type="file" accept="application/pdf" hidden onChange={(e) => onPickPdf(e.target.files[0])} />
@@ -198,6 +202,10 @@ function ReviewTab({ id, info, schema, busy, onChanged }) {
   }, [docKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fields = useMemo(() => [...schema.tai_lieu, ...schema.bo_sung], [schema]);
+  const [mainFields, restFields] = useMemo(
+    () => splitFields(fields.filter((f) => f.key !== 'can_kiem_tra'), DOC_MAIN),
+    [fields],
+  );
   const changed = draft && doc ? fields.map((f) => f.key).filter((k) => (draft[k] ?? '') !== (doc[k] ?? '')) : [];
   const shown = onlyWarn ? docs.filter((d) => d.can_kiem_tra && !d.da_soat) : docs;
 
@@ -296,15 +304,33 @@ function ReviewTab({ id, info, schema, busy, onChanged }) {
             </div>
           )}
           {draft && (
-            <FieldForm
-              fields={fields.filter((f) => !['can_kiem_tra'].includes(f.key))}
-              values={draft}
-              sources={doc._nguon}
-              readOnly={busy}
-              readOnlyKeys={READONLY_DOC}
-              onFocusField={setFocusKey}
-              onChange={(k, v) => setDraft((d) => ({ ...d, [k]: v }))}
-            />
+            <>
+              <FieldForm
+                fields={mainFields}
+                values={draft}
+                sources={doc._nguon}
+                readOnly={busy}
+                readOnlyKeys={READONLY_DOC}
+                onFocusField={setFocusKey}
+                onChange={(k, v) => setDraft((d) => ({ ...d, [k]: v }))}
+              />
+              <details className="rounded-md border border-gray-200 p-3">
+                <summary className="cursor-pointer text-sm text-gray-600">
+                  Thông tin quản lý ({restFields.length} trường — đa số tự điền từ hồ sơ hoặc tự tính)
+                </summary>
+                <div className="mt-3">
+                  <FieldForm
+                    fields={restFields}
+                    values={draft}
+                    sources={doc._nguon}
+                    readOnly={busy}
+                    readOnlyKeys={READONLY_DOC}
+                    onFocusField={setFocusKey}
+                    onChange={(k, v) => setDraft((d) => ({ ...d, [k]: v }))}
+                  />
+                </div>
+              </details>
+            </>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t px-4 py-2.5">
@@ -342,6 +368,10 @@ function InfoTab({ id, info, schema, busy, onChanged }) {
   }, [info.phong, info.ho_so]);
 
   const autoKeys = new Set(schema.ho_so.filter((f) => f.nguon !== 'nhap_tay').map((f) => f.key));
+  const [hsMain, hsRest] = splitFields(schema.ho_so, HO_SO_MAIN);
+  const hsAuto = hsRest.filter((f) => autoKeys.has(f.key));
+  const hsOther = hsRest.filter((f) => !autoKeys.has(f.key));
+  const [phMain, phOther] = splitFields(schema.phong, PHONG_MAIN);
   const save = async () => {
     setSaving(true);
     setMsg('');
@@ -358,20 +388,37 @@ function InfoTab({ id, info, schema, busy, onChanged }) {
 
   return (
     <div className="grid gap-3 lg:grid-cols-2">
-      <div className="card p-4">
-        <h3 className="mb-3 font-semibold">Hồ sơ</h3>
-        <FieldForm
-          fields={schema.ho_so}
-          values={hoSo}
-          readOnly={busy}
-          readOnlyKeys={autoKeys}
-          onChange={(k, v) => setHoSo((s) => ({ ...s, [k]: v }))}
-        />
+      <div className="card space-y-4 p-4">
+        <h3 className="font-semibold">Hồ sơ</h3>
+        <FieldForm fields={hsMain} values={hoSo} readOnly={busy} onChange={(k, v) => setHoSo((s) => ({ ...s, [k]: v }))} />
+        <div className="rounded-md bg-gray-50 p-3">
+          <div className="mb-2 text-xs font-medium uppercase text-gray-500">App tự tính</div>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            {hsAuto.map((f) => (
+              <div key={f.key} className="contents">
+                <dt className="text-gray-500">{f.label}</dt>
+                <dd className="break-words">{String(hoSo[f.key] ?? '') || '—'}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+        <details className="rounded-md border border-gray-200 p-3">
+          <summary className="cursor-pointer text-sm text-gray-600">Các trường khác của hồ sơ ({hsOther.length})</summary>
+          <div className="mt-3">
+            <FieldForm fields={hsOther} values={hoSo} readOnly={busy} onChange={(k, v) => setHoSo((s) => ({ ...s, [k]: v }))} />
+          </div>
+        </details>
       </div>
       <div className="space-y-3">
-        <div className="card p-4">
-          <h3 className="mb-3 font-semibold">Phông lưu trữ</h3>
-          <FieldForm fields={schema.phong} values={phong} readOnly={busy} onChange={(k, v) => setPhong((s) => ({ ...s, [k]: v }))} />
+        <div className="card space-y-4 p-4">
+          <h3 className="font-semibold">Phông lưu trữ</h3>
+          <FieldForm fields={phMain} values={phong} readOnly={busy} onChange={(k, v) => setPhong((s) => ({ ...s, [k]: v }))} />
+          <details className="rounded-md border border-gray-200 p-3">
+            <summary className="cursor-pointer text-sm text-gray-600">Các trường khác của phông ({phOther.length})</summary>
+            <div className="mt-3">
+              <FieldForm fields={phOther} values={phong} readOnly={busy} onChange={(k, v) => setPhong((s) => ({ ...s, [k]: v }))} />
+            </div>
+          </details>
         </div>
         <div className="flex items-center gap-3">
           <button className="btn btn-primary" disabled={busy || saving} onClick={save}>
@@ -514,34 +561,6 @@ function Alert({ kind, children, onClose }) {
           <X size={14} />
         </button>
       )}
-    </div>
-  );
-}
-
-function DropZone({ onFile }) {
-  const [over, setOver] = useState(false);
-  const input = useRef(null);
-  return (
-    <div
-      onDragOver={(e) => {
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setOver(false);
-        onFile(e.dataTransfer.files[0]);
-      }}
-      onClick={() => input.current.click()}
-      className={`card flex cursor-pointer flex-col items-center justify-center gap-2 border-2 border-dashed p-14 text-center ${
-        over ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-      }`}
-    >
-      <FileUp size={32} className="text-blue-700" />
-      <div className="font-medium">Kéo thả file PDF scan của hồ sơ vào đây</div>
-      <div className="text-sm text-gray-500">hoặc bấm để chọn file · scan nên từ 300 DPI</div>
-      <input ref={input} type="file" accept="application/pdf" hidden onChange={(e) => onFile(e.target.files[0])} />
     </div>
   );
 }
