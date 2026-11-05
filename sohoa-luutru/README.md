@@ -16,8 +16,8 @@ Máy mục tiêu: HP ZBook Firefly G8 (i7-1185G7, 32GB RAM, Intel Iris Xe, Windo
 | **2** | llama.cpp + LLM offline, đo tốc độ, LLM trả JSON theo schema | ✅ xong (gpt-oss-20b: 8/8 trường) |
 | **3** | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | ✅ xong (16/16 trường trên ZBook) |
 | **4** | Lưu SQLite + xuất Excel / CSV + tách PDF từng tài liệu (chạy bằng dòng lệnh) | ✅ xong |
-| **5** | Backend FastAPI (hàng đợi xử lý, tiến độ, sửa tay, xuất file) | ⏳ đang làm |
-| 6 | Giao diện React (Phông/Hồ sơ, tải PDF, hàng đợi, màn soát, xuất file) | |
+| **5** | Backend FastAPI (hàng đợi xử lý, tiến độ, sửa tay, xuất file) | ✅ xong (3 trang / 2 văn bản: 94s trên ZBook) |
+| **6** | Giao diện React (Phông/Hồ sơ, tải PDF, hàng đợi, màn soát, xuất file) | ⏳ tiếp theo |
 | 7 | Electron + đóng gói bộ cài Windows | |
 
 ## Cấu trúc thư mục
@@ -336,6 +336,10 @@ bị hạ xung, mọi giai đoạn chậm 3–5 lần so với Bước 3). Đã 
 - LLM đọc ít hơn (đoạn trích thay vì cả trang) và viết ít hơn (5 trường, tên ngắn, không đọc lại
   số/ký hiệu/ngày khi luật đã có); đọc prompt bằng mọi luồng CPU (`-tb`).
 - Script kiểm tra in thời gian thực tế của từng giai đoạn.
+
+Kết quả sau khi sửa (ZBook, cắm sạc, gpt-oss-20b, PDF mẫu 3 trang / 2 văn bản): **94 giây**
+(trước: 543 giây) — tách trang 0,8s, OCR 7,9s, AI văn bản 1 ~52s (lần đầu phải đọc cả phần
+hướng dẫn), văn bản 2 ~33s; đúng cả 2 văn bản, không ô nào cần kiểm tra.
 
 Dữ liệu mỗi hồ sơ: `data\ho_so\<id>\` (PDF gốc, ảnh + OCR từng trang, file xuất).
 
