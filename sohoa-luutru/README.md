@@ -310,7 +310,7 @@ Cần cài thêm thư viện Excel: `pip install -r requirements.txt` (thêm `op
 
 ### ✅ Bước 4 coi là xong khi
 
-1. Mở được file `.xlsx` bằng Excel, tiếng Việt hiển thị đúng, đủ 4 sheet.
+1. Mở được file `.xlsx` bằng Excel, tiếng Việt hiển thị đúng, đủ 23 cột điểm c.
 2. Thư mục `tai_lieu\` có 2 file PDF (2 trang và 1 trang).
 
 ---
@@ -447,3 +447,39 @@ PowerShell mở trong lúc dùng; tắt bằng Ctrl+C. (Bước 7 sẽ thay cử
 
 Đi trọn một vòng trên giao diện: tạo hồ sơ → kéo thả PDF → xem kết quả hiện dần → soát, sửa,
 đánh dấu đã soát → xuất Excel; đổi model AI rồi về mặc định.
+
+---
+
+## File xuất ra có gì? (23 cột — điểm c khoản 1 Điều 4 TT 05/2025/TT-BNV)
+
+Mỗi văn bản trong PDF là **một dòng**. Chỉ xuất dữ liệu **tài liệu** (điểm c); thông tin phông / hồ sơ
+chỉ dùng trong app để nhập một lần các giá trị chung.
+
+| # | Cột | Lấy từ đâu |
+|---|---|---|
+| 1 | Mã định danh tài liệu | nhập tay (văn bản giấy thường không có) |
+| 2 | Mã lưu trữ tài liệu | tự tính: mã hồ sơ + số thứ tự (vd. H01.2025.01.15.01) |
+| 3 | Thời hạn lưu trữ | nhập 1 lần cho cả hồ sơ |
+| 4 | Tên loại tài liệu | **OCR + luật** (AI đọc thay nếu luật không thấy) |
+| 5 | Số của tài liệu | **OCR + luật** |
+| 6 | Ký hiệu của tài liệu | **OCR + luật** |
+| 7 | Ngày tháng năm ban hành tài liệu | **OCR + luật** |
+| 8 | Tên cơ quan, tổ chức, cá nhân ban hành tài liệu | **OCR + AI** (chuẩn hóa viết hoa) |
+| 9 | Trích yếu nội dung | **OCR + AI** |
+| 10 | Ngôn ngữ | **OCR + luật** |
+| 11 | Số lượng trang | tự đếm từ PDF |
+| 12 | Số lượng tờ (đối với tài liệu số hóa) | tự đếm (= số trang nếu scan 1 mặt) |
+| 13 | Ký hiệu thông tin | nhập 1 lần cho cả hồ sơ |
+| 14 | Từ khóa | **OCR + AI** |
+| 15 | Mức độ tiếp cận | nhập 1 lần cho cả hồ sơ |
+| 16 | Mức độ tin cậy | nhập 1 lần cho cả hồ sơ (mặc định "Số hóa") |
+| 17 | Bút tích (đối với tài liệu số hóa) | nhập tay khi soát |
+| 18 | Tình trạng vật lý (đối với tài liệu số hóa) | nhập 1 lần cho cả hồ sơ (mặc định "Bình thường") |
+| 19 | Quy trình xử lý (đối với tài liệu gốc điện tử) | để trống — không áp dụng cho tài liệu số hóa |
+| 20 | Chế độ lập tài liệu lưu trữ dự phòng | nhập 1 lần cho cả hồ sơ |
+| 21 | Tình trạng lập tài liệu lưu trữ dự phòng | nhập 1 lần cho cả hồ sơ |
+| 22 | Tệp tin tài liệu | tự tính: tên file PDF tách riêng của văn bản |
+| 23 | Ghi chú | nhập tay khi soát |
+
+**OCR + AI đọc được từ ảnh scan: 8 cột** (4–10, 14). 4 cột tự tính/tự đếm. 7 cột không có trên
+văn bản nên nhập một lần cho cả hồ sơ. 4 cột nhập tay hoặc để trống.

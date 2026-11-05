@@ -18,7 +18,7 @@ Tóm tắt:
   GET    /api/ho-so/{id}/trang/{n}/anh       ảnh trang (PNG)
   GET    /api/ho-so/{id}/trang/{n}/ocr       các dòng chữ + toạ độ (để tô sáng trên ảnh)
   PUT    /api/ho-so/{id}/tai-lieu/{stt}      sửa tay {thay_doi: {...}, da_soat?: bool}
-  GET    /api/ho-so/{id}/xuat/xlsx|csv|pdf   tải file xuất (csv, pdf là .zip)
+  GET    /api/ho-so/{id}/xuat/xlsx|csv|pdf   tải file xuất: 23 cột điểm c TT05 (pdf = .zip từng tài liệu)
 """
 
 from __future__ import annotations
@@ -428,10 +428,12 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             p = export_xlsx(info, out / f"{ma}.xlsx")
             return FileResponse(p, filename=p.name,
                                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        if kieu in ("csv", "pdf"):
-            files = (export_csv(info, out / "csv", ma) if kieu == "csv"
-                     else split_pdf(Path(info["tep_pdf"]), info["tai_lieu"], out / "tai_lieu"))
-            z = out / f"{ma}_{kieu}.zip"
+        if kieu == "csv":
+            p = export_csv(info, out / f"{ma}.csv")
+            return FileResponse(p, filename=p.name, media_type="text/csv; charset=utf-8")
+        if kieu == "pdf":
+            files = split_pdf(Path(info["tep_pdf"]), info["tai_lieu"], out / "tai_lieu")
+            z = out / f"{ma}_tai_lieu_pdf.zip"
             with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
                 for f in files:
                     zf.write(f, f.name)

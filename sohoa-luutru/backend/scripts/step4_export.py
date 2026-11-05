@@ -4,8 +4,8 @@
     python scripts/step4_export.py --danh-sach         # xem các hồ sơ đã lưu trong CSDL
 
 Kết quả ở data/xuat/<mã hồ sơ>/:
-    <mã hồ sơ>.xlsx            4 sheet: Phông, Hồ sơ, Tài liệu, Mục lục văn bản
-    csv/<mã hồ sơ>_*.csv       cùng nội dung, mỗi sheet một file CSV (UTF-8, mở được bằng Excel)
+    <mã hồ sơ>.xlsx            dữ liệu tài liệu: 23 cột theo điểm c Điều 4 TT05, mỗi văn bản một dòng
+    <mã hồ sơ>.csv             cùng nội dung (UTF-8, mở được bằng Excel)
     tai_lieu/<mã lưu trữ>.pdf  PDF hồ sơ tách thành từng tài liệu
 """
 
@@ -56,14 +56,13 @@ def main() -> int:
     out_dir = DATA_DIR / "xuat" / safe_name(ma)
     xlsx = export_xlsx(saved, out_dir / f"{safe_name(ma)}.xlsx")
     print(f"Excel : {xlsx}")
-    for p in export_csv(saved, out_dir / "csv", safe_name(ma)):
-        print(f"CSV   : {p}")
+    print(f"CSV   : {export_csv(saved, out_dir / f'{safe_name(ma)}.csv')}")
     for p in split_pdf(args.pdf, saved["tai_lieu"], out_dir / "tai_lieu"):
         print(f"PDF   : {p}")
 
     warn = [d for d in saved["tai_lieu"] if d.get("can_kiem_tra")]
     if warn:
-        print(f"\n{len(warn)} tài liệu cần kiểm tra (ô tô vàng trong sheet 'Tài liệu'):")
+        print(f"\n{len(warn)} tài liệu cần kiểm tra (xem trong app):")
         for d in warn:
             print(f"  {d['stt']:3d}. {d['can_kiem_tra']}")
     return 0
