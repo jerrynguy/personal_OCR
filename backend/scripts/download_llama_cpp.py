@@ -7,7 +7,7 @@
     python scripts/download_llama_cpp.py --tag b6500       # một phiên bản cụ thể
 
 Bản CPU luôn được tải kèm (dự phòng). Bản CPU tự chọn tập lệnh nhanh nhất của máy (AVX2 / AVX-512).
-Giải nén vào sohoa-luutru/models/llama.cpp/<variant>/
+Giải nén vào models/llama.cpp/<variant>/
 """
 
 import argparse

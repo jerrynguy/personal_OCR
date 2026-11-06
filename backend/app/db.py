@@ -163,6 +163,22 @@ def delete_ho_so(ho_so_id: int, db_path: Path | None = None) -> None:
         conn.execute("DELETE FROM ho_so WHERE id = ?", (ho_so_id,))
 
 
+def _resolve_pdf(ho_so_id: int, stored: str | None) -> str | None:
+    """Đường dẫn PDF lưu trong CSDL là tuyệt đối. Nếu thư mục data/ đã bị dời đi (vd. đổi cấu trúc
+    thư mục, chép sang máy khác) thì tìm lại file ở vị trí tương ứng trong DATA_DIR hiện tại."""
+    if not stored or Path(stored).exists():
+        return stored
+    candidates = [DATA_DIR / "ho_so" / str(ho_so_id) / "goc.pdf"]
+    parts = Path(stored.replace("\\", "/")).parts
+    if "data" in parts:
+        i = len(parts) - 1 - parts[::-1].index("data")
+        candidates.append(DATA_DIR.joinpath(*parts[i + 1:]))
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return stored
+
+
 def _get_row(conn, ho_so_id: int) -> sqlite3.Row:
     row = conn.execute("SELECT * FROM ho_so WHERE id = ?", (ho_so_id,)).fetchone()
     if row is None:
@@ -239,7 +255,7 @@ def load_ho_so(ho_so_id: int, db_path: Path | None = None) -> dict:
         "phong": phong,
         "ho_so": {**defaults("ho_so"), **json.loads(row["du_lieu"])},
         "tai_lieu": docs,
-        "tep_pdf": row["tep_pdf"],
+        "tep_pdf": _resolve_pdf(row["id"], row["tep_pdf"]),
         "so_trang": row["so_trang"] or 0,
         "trang_thai": row["trang_thai"],
         "loi": row["loi"] or "",

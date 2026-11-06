@@ -7,7 +7,7 @@ Mọi thứ (model, dữ liệu) nằm trong thư mục project, không rải ra
 import os
 from pathlib import Path
 
-# sohoa-luutru/
+# thư mục gốc của repo (chứa backend/, frontend/, models/, data/)
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 MODELS_DIR = Path(os.environ.get("SOHOA_MODELS_DIR", ROOT_DIR / "models"))

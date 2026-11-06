@@ -1,4 +1,4 @@
-"""Tải toàn bộ model OCR về sohoa-luutru/models/ — CHỈ CẦN CHẠY MỘT LẦN KHI CÓ MẠNG.
+"""Tải toàn bộ model OCR về models/ — CHỈ CẦN CHẠY MỘT LẦN KHI CÓ MẠNG.
 
 Sau khi tải xong, app chạy hoàn toàn offline. Có thể chép nguyên thư mục models/
 sang máy khác qua USB. Chạy lại nhiều lần cũng không sao: model nào có rồi sẽ bỏ qua.
