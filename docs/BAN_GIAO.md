@@ -98,7 +98,10 @@ Có thể làm tiếp (hỏi người dùng trước):
 
 - **Bước 7**: đóng gói thành file cài đặt `.exe` (Electron + backend đóng gói + model), cài được trên máy
   không có mạng, có hộp chọn thư mục/file gốc của Windows.
-- `cai-dat.bat` / `mo-app.bat` chưa được chạy thử trên Windows — chờ người dùng báo kết quả.
+- `cai-dat.bat` / `mo-app.bat`: người dùng thử trên 1 máy khác (2026-11-07) — bước 6 (tải model 12 GB) lỗi giữa
+  chừng, chạy lại thì tải lại từ đầu. Nguyên nhân: huggingface_hub bản mới dừng khi mạng im 10 giây và XÓA phần đã
+  tải khi lỗi. Đã thay bằng `backend/app/download.py` (tự thử lại, tải tiếp từ file `.dang_tai`, kiểm tra ổ đĩa,
+  giữ máy không ngủ, kiểm tra SHA-256). Chờ người dùng báo các bước còn lại.
 - Ảnh README cũ (01–11) chụp trước khi có mục "Nhập thư mục" trên thanh trên cùng — chụp lại khi tiện
   (`backend/tests/anh_readme.js` là mẫu cách chụp có đánh số).
 - Model AI thay thế (Gemma 4 26B-A4B…) chưa so sánh; người dùng đang dùng gpt-oss-20b.

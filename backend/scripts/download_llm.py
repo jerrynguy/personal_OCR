@@ -51,12 +51,19 @@ def search(query: str, limit: int) -> None:
 
 
 def download(repo: str, filename: str) -> Path:
-    from huggingface_hub import hf_hub_download
+    """Tải file model. Mạng ngắt -> tự thử lại; chạy lại script -> tải TIẾP từ chỗ dở (xem app/download.py)."""
+    from app.download import download as fetch, hf_url
 
-    LLM_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Đang tải {repo} / {filename} vào {LLM_DIR} (có thể mất 20–60 phút)...")
-    path = hf_hub_download(repo_id=repo, filename=filename, local_dir=LLM_DIR / repo.replace("/", "__"))
-    return Path(path)
+    dest = LLM_DIR / repo.replace("/", "__") / filename
+    if dest.exists():
+        print(f"Đã có {dest}")
+        return dest
+    # Cách tải cũ (huggingface_hub) để lại file tạm vài GB nếu cửa sổ bị đóng giữa chừng -> dọn cho đỡ tốn ổ đĩa
+    for junk in (dest.parent / ".cache" / "huggingface" / "download").glob("*.incomplete"):
+        junk.unlink(missing_ok=True)
+    print(f"Đang tải {repo} / {filename} vào {dest.parent}")
+    print("(mạng ngắt thì app tự thử lại; lỡ tắt cửa sổ thì bấm đúp lại cai-dat.bat — tải tiếp từ chỗ dở)")
+    return fetch(hf_url(repo, filename), dest)
 
 
 def main() -> int:
@@ -77,7 +84,16 @@ def main() -> int:
         if not args.file:
             print("Thiếu --file")
             return 1
-        path = download(args.repo, args.file)
+        from app.download import DownloadError
+
+        try:
+            path = download(args.repo, args.file)
+        except DownloadError as e:
+            print(f"\n!!! {e}")
+            return 1
+        except KeyboardInterrupt:
+            print("\nĐã dừng. Chạy lại sẽ tải tiếp từ chỗ dở.")
+            return 1
     else:
         path = args.use
         if not path.exists() or path.suffix.lower() != ".gguf":

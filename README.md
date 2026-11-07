@@ -69,6 +69,8 @@ Có thể gặp các tình huống sau — đều bình thường:
 | Cửa sổ báo **"Đã cài xong phần mềm cần thiết… bấm đúp LẠI cai-dat.bat"** | Máy chưa có Python/Node.js, phần mềm vừa tự cài. **Đóng** cửa sổ, **bấm đúp lại** `cai-dat.bat` |
 | Windows hỏi **"Do you want to allow this app to make changes…"** | Bấm **Yes** |
 | Bước 6 tải **model AI 12 GB** rất lâu | Bình thường, cứ chờ. Đã có model ở máy khác thì xem [Đổi model AI](#đổi-model-ai) |
+| Bước 6 báo **"Mạng bị ngắt…"** rồi tự thử lại | Bình thường, cứ chờ: app tự tải tiếp từ chỗ dở |
+| Bước 6 báo **LỖI** và dừng | Đọc dòng có `!!!` ngay phía trên chữ LỖI: *mạng bị ngắt nhiều lần* → kiểm tra mạng; *ổ không đủ chỗ* → dọn bớt ổ đĩa hoặc chuyển thư mục app sang ổ D:. Rồi bấm đúp lại `cai-dat.bat` — **phần đã tải được giữ lại**, tải tiếp từ chỗ dở |
 
 > Nếu đã có model `gpt-oss-20b-MXFP4.gguf` (vd. tải bằng LM Studio), có thể bấm đóng cửa sổ khi
 > đến bước 6, mở phần mềm rồi chọn file đó ở mục **Model AI**, sau đó chạy lại `cai-dat.bat` để

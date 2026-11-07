@@ -95,7 +95,8 @@ $null = & $Py -c "import sys; sys.path.insert(0, 'backend'); from app.llm import
 if ($LASTEXITCODE -eq 0) {
     Write-Host 'Đã có model AI, bỏ qua.'
 } else {
-    Write-Host 'Đang tải model AI 12 GB — có thể mất 20-60 phút tùy mạng...' -ForegroundColor Yellow
+    Write-Host 'Đang tải model AI 12 GB — có thể mất 20-60 phút tùy mạng. Nhớ cắm sạc.' -ForegroundColor Yellow
+    Write-Host 'Mạng ngắt thì app tự thử lại. Lỡ đóng cửa sổ: bấm đúp lại cai-dat.bat, tải TIẾP từ chỗ dở.' -ForegroundColor Yellow
     Chay 'tải model AI' { & $Py backend\scripts\download_llm.py --repo lmstudio-community/gpt-oss-20b-GGUF --file gpt-oss-20b-MXFP4.gguf }
 }
 
