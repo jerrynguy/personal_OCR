@@ -76,3 +76,22 @@ def power_status() -> str:
         return "; ".join(notes)
     except Exception:  # noqa: BLE001
         return ""
+
+
+ES_CONTINUOUS = 0x80000000
+ES_SYSTEM_REQUIRED = 0x00000001
+
+
+def keep_awake(on: bool) -> bool:
+    """Không cho Windows tự chuyển sang chế độ ngủ khi đang xử lý (hàng đợi chạy qua đêm).
+    Màn hình vẫn tắt được bình thường. Phải gọi từ CÙNG một luồng (luồng hàng đợi); on=False -> cho ngủ lại."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        fn = ctypes.windll.kernel32.SetThreadExecutionState
+        fn.argtypes, fn.restype = [ctypes.c_uint32], ctypes.c_uint32
+        return bool(fn(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if on else 0)))
+    except Exception:  # noqa: BLE001
+        return False

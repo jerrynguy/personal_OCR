@@ -1,24 +1,37 @@
-"""API cho giao diện (Bước 6). Chỉ nghe 127.0.0.1; mọi request /api/* (trừ /api/health) phải
+"""API cho giao diện. Chỉ nghe 127.0.0.1; mọi request /api/* (trừ /api/health) phải
 kèm token: header 'X-Token: <token>' hoặc '?token=<token>' (dùng cho ảnh / tải file).
 
 Tóm tắt:
   GET    /api/health                         sống chưa (không cần token)
-  GET    /api/he-thong                       model nào đã có / đang nạp, hàng đợi
+  GET    /api/he-thong                       model nào đã có / đang nạp, tóm tắt hàng đợi
   GET    /api/schema                         danh sách trường TT05 (để vẽ form)
-  GET    /api/ho-so                          danh sách hồ sơ
+  GET    /api/ho-so?q=&lo=&trang_thai=&trang=&moi_trang=   danh sách hồ sơ (lọc + phân trang)
+  GET    /api/lo                             các lô đã nhập (thư mục cha)
   POST   /api/ho-so                          tạo hồ sơ {phong:{...}, ho_so:{...}}
-  GET    /api/ho-so/{id}                     chi tiết: phông, hồ sơ, tài liệu, trạng thái
+  POST   /api/ho-so/xoa                      xóa nhiều hồ sơ {ids:[...]} hoặc {loc:{lo,q,trang_thai}}
+  GET    /api/ho-so/{id}                     chi tiết: phông, hồ sơ, tài liệu, file nguồn, tiến độ
   PUT    /api/ho-so/{id}                     sửa thông tin phông / hồ sơ
-  DELETE /api/ho-so/{id}                     xóa hồ sơ (cả file)
+  DELETE /api/ho-so/{id}                     xóa hồ sơ (dữ liệu của app; file gốc nhập từ thư mục KHÔNG bị xóa)
   POST   /api/ho-so/{id}/pdf                 tải PDF lên (multipart, trường 'file')
-  POST   /api/ho-so/{id}/xu-ly               bắt đầu xử lý {ocr_lai?, ranh_gioi?: [trang bắt đầu...]}
-  GET    /api/ho-so/{id}/tien-do             tiến độ lần xử lý gần nhất
-  POST   /api/xu-ly/{job_id}/huy             hủy
+  POST   /api/ho-so/{id}/xu-ly               xếp hàng xử lý {ocr_lai?, ranh_gioi?: [trang bắt đầu...], khong_llm?}
+  POST   /api/ho-so/{id}/doc-chu             chỉ đọc chữ (OCR) để app gợi ý trang đầu tài liệu
+  GET    /api/ho-so/{id}/goi-y               trang có vẻ là trang đầu tài liệu (quốc hiệu / dòng "Số:")
+  GET    /api/ho-so/{id}/tien-do             tiến độ (đang chạy / đang chờ thứ mấy / lần gần nhất)
+  POST   /api/ho-so/{id}/huy                 hủy (đang chạy) hoặc bỏ khỏi hàng đợi (đang chờ)
+  POST   /api/xu-ly/{job_id}/huy             hủy theo mã lần xử lý (giữ cho tương thích)
   GET    /api/ho-so/{id}/trang               danh sách trang
-  GET    /api/ho-so/{id}/trang/{n}/anh       ảnh trang (PNG)
+  GET    /api/ho-so/{id}/trang/{n}/anh       ảnh trang (?nho=1: ảnh thu nhỏ)
   GET    /api/ho-so/{id}/trang/{n}/ocr       các dòng chữ + toạ độ (để tô sáng trên ảnh)
   PUT    /api/ho-so/{id}/tai-lieu/{stt}      sửa tay {thay_doi: {...}, da_soat?: bool}
   GET    /api/ho-so/{id}/xuat/xlsx|csv|pdf   tải file xuất: 23 cột điểm c TT05 (pdf = .zip từng tài liệu)
+  GET    /api/xuat/xlsx|xlsx-zip?ids=|lo=&q=&trang_thai=   xuất NHIỀU hồ sơ: 1 file gộp | mỗi hồ sơ 1 file (.zip)
+  GET    /api/hang-doi                       hàng đợi: đang chạy, đang chờ, ước tính thời gian, tạm dừng?
+  POST   /api/hang-doi/tam-dung | tiep-tuc   tạm dừng ngay / chạy tiếp
+  POST   /api/hang-doi/them                  xếp nhiều hồ sơ {ids | loc, khong_llm?, chi_chua_ai?}
+  POST   /api/hang-doi/bo                    bỏ nhiều hồ sơ đang chờ khỏi hàng {ids | loc}
+  POST   /api/nhap/chon-thu-muc              mở hộp chọn thư mục của Windows -> {duong_dan}
+  POST   /api/nhap/quet                      quét thư mục {duong_dan} -> {id}; GET /api/nhap/quet/{id} tiến độ + kết quả
+  POST   /api/nhap/tao                       tạo hàng loạt từ kết quả quét + xếp hàng xử lý
 """
 
 from __future__ import annotations
@@ -27,6 +40,7 @@ import json
 import re
 import secrets
 import shutil
+import time
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,11 +51,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import db
-from app.config import ACTIVE_LLM_FILE, DET_MODELS, DOC_ORI_MODEL, VIETOCR_MODELS, paddle_model_dir, vietocr_weights_path
-from app.export import export_csv, export_xlsx, split_pdf
+from app import batch, db
+from app.config import (
+    ACTIVE_LLM_FILE,
+    DATA_DIR,
+    DEFAULT_LLM_NAME,
+    DET_MODELS,
+    DOC_ORI_MODEL,
+    LLM_DIR,
+    VIETOCR_MODELS,
+    paddle_model_dir,
+    vietocr_weights_path,
+)
+from app.export import export_csv, export_xlsx, write_xlsx
 from app.jobs import JobQueue
-from app.config import DEFAULT_LLM_NAME, LLM_DIR
 from app.llm import (
     active_model_path,
     default_model_path,
@@ -52,33 +75,57 @@ from app.llm import (
     resolve_runtime,
 )
 from app.pdf_render import low_dpi_warning
-from app.pipeline import clear_pages, ho_so_dir, ocr_cache, pages_dir, refresh_ho_so, run_job
+from app.pipeline import (
+    clear_pages, ho_so_dir, load_ocr, ocr_path, pages_dir, refresh_ho_so, run_job, view_image,
+)
+from app.segment import is_first_page, text_layer_page
 from app.services import LlmService, OcrService, warm_up
-from app.winperf import disable_power_throttling, power_status
+from app.sources import PdfSet, SourceMissing, missing_files, pdf_lock, split_to_files
 from app.tt05 import load_schema
+from app.winperf import disable_power_throttling, power_status
 
 MAX_PDF_MB = 500
+THUMB_W = 360  # ảnh thu nhỏ (màn tách văn bản)
+PREVIEW_W = 1100  # ảnh xem trước của trang chưa đọc chữ
 
 
 def _safe(s: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", s).strip() or "ho_so"
 
 
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _download(path: Path, media: str) -> FileResponse:
+    """Tải file về với đúng tên tiếng Việt (filename*), kèm tên không dấu cho trình duyệt / phần mềm cũ."""
+    from urllib.parse import quote
+
+    from app.rules import strip_accents
+
+    plain = re.sub(r"[^A-Za-z0-9._-]+", "_", strip_accents(path.name)).strip("_") or "tai_ve"
+    cd = f"attachment; filename=\"{plain}\"; filename*=utf-8''{quote(path.name)}"
+    return FileResponse(path, media_type=media, headers={"Content-Disposition": cd})
+
+
 def _public(info: dict) -> dict:
-    """Bỏ đường dẫn tuyệt đối trên máy khỏi dữ liệu trả về giao diện."""
+    """Bỏ đường dẫn từng file trên máy khỏi dữ liệu trả về giao diện (thư mục gốc thì vẫn hiện để người dùng biết)."""
     out = dict(info)
-    out["co_pdf"] = bool(info.get("tep_pdf")) and Path(info["tep_pdf"]).exists()
-    out["ten_pdf"] = Path(info["tep_pdf"]).name if info.get("tep_pdf") else ""
+    sources = info.get("nguon_pdf") or []
+    out["co_pdf"] = bool(sources) and (info.get("tu_thu_muc") or Path(sources[0]["duong_dan"]).exists())
+    out["ten_pdf"] = sources[0]["ten"] if len(sources) == 1 else (f"{len(sources)} file PDF" if sources else "")
+    out["nguon_pdf"] = [{"ten": s["ten"], "so_trang": s["so_trang"], "trang_dau": s["trang_dau"]} for s in sources]
+    out["file_thieu"] = missing_files(sources) if info.get("tu_thu_muc") else []
     out.pop("tep_pdf", None)
     return out
 
 
 def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
-               frontend_dir: Path | None = None, warmup: bool = True) -> FastAPI:
+               frontend_dir: Path | None = None, warmup: bool = True, llm_service=None) -> FastAPI:
     token = token if token is not None else secrets.token_urlsafe(24)
     ocr = OcrService(ocr_factory)
-    llm = LlmService()
+    llm = llm_service or LlmService()
     jobs = JobQueue(lambda job: run_job(job, ocr, llm))
+    scans = batch.Scans()
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -122,8 +169,19 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             raise HTTPException(404, "Không có hồ sơ này") from None
 
     def busy(ho_so_id: int) -> bool:
-        j = jobs.latest_for(ho_so_id)
-        return j is not None and not j.done
+        """Đang CHẠY (hồ sơ đang chờ trong hàng thì vẫn sửa được: lúc chạy sẽ đọc thông tin mới nhất)."""
+        return jobs.running_for(ho_so_id)
+
+    def selection(body: dict | None = None, ids: str | None = None, lo: str | None = None, q: str | None = None,
+                  trang_thai: str | None = None) -> list[int]:
+        """Hồ sơ được chọn: danh sách id, hoặc mọi hồ sơ khớp bộ lọc (lô / tìm kiếm / trạng thái)."""
+        if body is not None:
+            if body.get("ids") is not None:
+                return db.select_ids(ids=body["ids"])
+            loc = body.get("loc") or {}
+            return db.select_ids(lo=loc.get("lo"), q=loc.get("q"), trang_thai=loc.get("trang_thai"))
+        id_list = [int(x) for x in ids.split(",") if x.strip()] if ids else None
+        return db.select_ids(ids=id_list, lo=lo, q=q, trang_thai=trang_thai)
 
     # ------------------------------------------------------------ hệ thống
     @app.get("/api/health")
@@ -137,6 +195,7 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             llm_path = json.loads(ACTIVE_LLM_FILE.read_text(encoding="utf-8")).get("path", "")
         models = {name: paddle_model_dir(name).exists() for name in [DOC_ORI_MODEL, *DET_MODELS]}
         models.update({f"VietOCR {n}": vietocr_weights_path(n).exists() for n in VIETOCR_MODELS})
+        q = jobs.summary(limit=0)
         return {
             "model_ocr": models,
             "model_llm": Path(llm_path).name if llm_path else "",
@@ -150,7 +209,7 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             "khuyen_nghi": hardware_profile()[1],
             "llama_cpp_da_cai": installed_variants(),
             "llm_cau_hinh": resolve_runtime() if installed_variants() else None,
-            "hang_doi": [j.to_dict() for j in jobs.active()],
+            "hang_doi": {k: q[k] for k in ("tam_dung", "dang_chay", "so_cho", "uoc_tinh_giay")},
         }
 
     # ------------------------------------------------------------ model AI (LLM)
@@ -173,7 +232,7 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
 
     def check_switchable() -> None:
         if jobs.active():
-            raise HTTPException(409, "Đang có hồ sơ xử lý — chờ xong rồi đổi model")
+            raise HTTPException(409, "Đang có hồ sơ xử lý — tạm dừng hàng đợi (hoặc chờ xong) rồi đổi model")
         if llm.loading:
             raise HTTPException(409, "Đang nạp model — chờ một chút")
 
@@ -249,11 +308,19 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
 
     # ------------------------------------------------------------ hồ sơ
     @app.get("/api/ho-so")
-    def ds_ho_so():
-        rows = db.list_ho_so()
+    def ds_ho_so(q: str = "", lo: str | None = None, trang_thai: str = "", trang: int = 1, moi_trang: int = 50):
+        moi_trang = max(1, min(moi_trang, 500))
+        trang = max(1, trang)
+        # xem 1 lô: theo thứ tự thư mục lúc nhập; còn lại: hồ sơ mới cập nhật lên đầu
+        total, rows = db.query_ho_so(lo=lo, q=q.strip(), trang_thai=trang_thai, offset=(trang - 1) * moi_trang,
+                                     limit=moi_trang, order="thu_tu" if lo else "moi_nhat")
         for r in rows:
-            r["ten_pdf"] = Path(r.pop("tep_pdf") or "").name
-        return rows
+            r.pop("tep_pdf", None)
+        return {"tong": total, "trang": trang, "moi_trang": moi_trang, "ho_so": rows}
+
+    @app.get("/api/lo")
+    def ds_lo():
+        return db.list_lo()
 
     @app.post("/api/ho-so", status_code=201)
     def tao_ho_so(body: dict = Body(...)):
@@ -263,11 +330,25 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             raise HTTPException(400, str(e)) from None
         return _public(db.load_ho_so(new_id))
 
+    def delete_one(ho_so_id: int) -> None:
+        db.dequeue([ho_so_id])
+        db.delete_ho_so(ho_so_id)
+        shutil.rmtree(ho_so_dir(ho_so_id), ignore_errors=True)  # chỉ dữ liệu của app, không đụng file gốc
+
+    @app.post("/api/ho-so/xoa")
+    def xoa_nhieu(body: dict = Body(...)):
+        ids = selection(body)
+        skipped = [i for i in ids if busy(i)]
+        for i in ids:
+            if i not in skipped:
+                delete_one(i)
+        return {"da_xoa": len(ids) - len(skipped), "bo_qua_dang_chay": len(skipped)}
+
     @app.get("/api/ho-so/{ho_so_id}")
     def chi_tiet(ho_so_id: int):
         info = _public(load(ho_so_id))
-        j = jobs.latest_for(ho_so_id)
-        info["tien_do"] = j.to_dict() if j else None
+        info["tien_do"] = jobs.progress(ho_so_id)
+        info["hang_doi_tam_dung"] = jobs.paused
         return info
 
     @app.put("/api/ho-so/{ho_so_id}")
@@ -286,8 +367,7 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
         load(ho_so_id)
         if busy(ho_so_id):
             raise HTTPException(409, "Hồ sơ đang xử lý, hãy hủy trước")
-        db.delete_ho_so(ho_so_id)
-        shutil.rmtree(ho_so_dir(ho_so_id), ignore_errors=True)
+        delete_one(ho_so_id)
 
     # ------------------------------------------------------------ PDF + xử lý
     @app.post("/api/ho-so/{ho_so_id}/pdf")
@@ -308,7 +388,7 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
                     raise HTTPException(413, f"File quá lớn (tối đa {MAX_PDF_MB} MB)")
                 f.write(chunk)
         try:
-            with pymupdf.open(tmp) as d:
+            with pdf_lock, pymupdf.open(tmp) as d:
                 if d.needs_pass:
                     raise ValueError("PDF đang đặt mật khẩu")
                 so_trang = d.page_count
@@ -324,12 +404,14 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
         db.set_pdf(ho_so_id, str(dest), so_trang)
         # Lưu ở ổ đĩa tên goc.pdf, nhưng "Tệp tin hồ sơ" ghi tên file gốc của người dùng
         db.update_ho_so_info(ho_so_id, None, {"tep_tin_ho_so": Path(file.filename or "ho_so.pdf").name})
-        return {"so_trang": so_trang, "ten_file": file.filename, "canh_bao": low_dpi_warning(dest)}
+        with pdf_lock:
+            warn = low_dpi_warning(dest)
+        return {"so_trang": so_trang, "ten_file": file.filename, "canh_bao": warn}
 
     @app.post("/api/ho-so/{ho_so_id}/xu-ly", status_code=202)
     def xu_ly(ho_so_id: int, body: dict | None = Body(None)):
         info = load(ho_so_id)
-        if not info["tep_pdf"]:
+        if not info["nguon_pdf"]:
             raise HTTPException(400, "Hồ sơ chưa có file PDF")
         params = {k: v for k, v in (body or {}).items() if k in ("ocr_lai", "ranh_gioi", "khong_llm")}
         if "ranh_gioi" in params:
@@ -337,65 +419,111 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
             if not starts or starts[0] != 1:
                 starts = [1, *starts]
             params["ranh_gioi"] = starts
-        job = jobs.submit(ho_so_id, "xu_ly", params)
-        if not job.started:
-            db.set_status(ho_so_id, "cho")
-        return job.to_dict()
+        return jobs.submit(ho_so_id, "xu_ly", params, uu_tien=1)
+
+    @app.post("/api/ho-so/{ho_so_id}/doc-chu", status_code=202)
+    def doc_chu(ho_so_id: int):
+        """Chỉ đọc chữ (OCR) mọi trang — để app gợi ý trang đầu tài liệu. Kết quả được dùng lại khi xử lý."""
+        info = load(ho_so_id)
+        if not info["nguon_pdf"]:
+            raise HTTPException(400, "Hồ sơ chưa có file PDF")
+        return jobs.submit(ho_so_id, "ocr", {}, uu_tien=1)
+
+    @app.get("/api/ho-so/{ho_so_id}/goi-y")
+    def goi_y(ho_so_id: int):
+        """GỢI Ý trang đầu tài liệu (người dùng bấm xác nhận, app không tự tách): trang có quốc hiệu hoặc
+        dòng 'Số: ...' ở đầu trang. Dùng kết quả OCR; trang chưa OCR mà PDF có sẵn lớp chữ thì dùng lớp chữ."""
+        info = load(ho_so_id)
+        total = info["so_trang"]
+        hits, read = [], 0
+        missing = []
+        for n in range(1, total + 1):
+            page = load_ocr(ho_so_id, n)
+            if page is None:
+                missing.append(n)
+                continue
+            read += 1
+            if is_first_page(page):
+                hits.append(n)
+        if missing and info["nguon_pdf"]:
+            try:
+                with PdfSet(info["nguon_pdf"]) as pdfs:
+                    for n in missing:
+                        with pdf_lock:
+                            page = text_layer_page(pdfs.page(n))
+                        if page is not None:
+                            read += 1
+                            if is_first_page(page):
+                                hits.append(n)
+            except (SourceMissing, ValueError):
+                pass
+        return {"goi_y": sorted(hits), "da_doc": read, "tong": total}
 
     @app.get("/api/ho-so/{ho_so_id}/tien-do")
     def tien_do(ho_so_id: int):
         load(ho_so_id)
-        j = jobs.latest_for(ho_so_id)
-        return j.to_dict() if j else None
+        return jobs.progress(ho_so_id)
+
+    @app.post("/api/ho-so/{ho_so_id}/huy")
+    def huy_ho_so(ho_so_id: int):
+        load(ho_so_id)
+        if not jobs.cancel(ho_so_id):
+            raise HTTPException(404, "Hồ sơ này không đang xử lý hay đang chờ")
+        return {"ok": True}
 
     @app.post("/api/xu-ly/{job_id}/huy")
     def huy(job_id: int):
-        if not jobs.cancel(job_id):
+        if not jobs.cancel_job(job_id):
             raise HTTPException(404, "Không có lần xử lý đang chạy với mã này")
         return {"ok": True}
 
     # ------------------------------------------------------------ trang (ảnh + OCR)
-    def page_img(ho_so_id: int, n: int) -> Path:
-        return pages_dir(ho_so_id) / f"page_{n:03d}.png"
-
     @app.get("/api/ho-so/{ho_so_id}/trang")
     def ds_trang(ho_so_id: int):
         info = load(ho_so_id)
-        out = []
-        for n in range(1, info["so_trang"] + 1):
-            img = page_img(ho_so_id, n)
-            out.append({"so": n, "co_anh": img.exists(), "co_ocr": ocr_cache(img).exists()})
-        return out
+        return [{"so": n, "co_anh": view_image(ho_so_id, n) is not None, "co_ocr": ocr_path(ho_so_id, n).exists()}
+                for n in range(1, info["so_trang"] + 1)]
 
     @app.get("/api/ho-so/{ho_so_id}/trang/{n}/anh")
     def anh_trang(ho_so_id: int, n: int, nho: bool = False):
-        """Ảnh trang. nho=1 -> ảnh thu nhỏ (rộng 300px, JPEG) cho danh sách trang."""
+        """Ảnh trang. nho=1 -> ảnh thu nhỏ (JPEG) cho màn tách văn bản.
+        Trang đã đọc chữ: ảnh đã xoay thẳng (khớp toạ độ OCR). Chưa đọc: vẽ nhanh từ PDF để xem trước."""
         info = load(ho_so_id)
         if not 1 <= n <= info["so_trang"]:
             raise HTTPException(404, "Không có trang này")
-        img = page_img(ho_so_id, n)
-        if not img.exists():  # chưa xử lý -> render nhanh để xem trước
-            img = img.with_suffix(".preview.png")
-            if not img.exists():
-                img.parent.mkdir(parents=True, exist_ok=True)
-                with pymupdf.open(info["tep_pdf"]) as d:
-                    d[n - 1].get_pixmap(dpi=150, alpha=False).save(img)
-        if not nho:
-            return FileResponse(img, media_type="image/png", headers={"Cache-Control": "no-cache"})
-        thumb = img.with_name(img.stem.split(".")[0] + ".thumb.jpg")
-        if not thumb.exists() or thumb.stat().st_mtime < img.stat().st_mtime:
-            from PIL import Image
+        folder = pages_dir(ho_so_id)
+        img = view_image(ho_so_id, n)
+        stem = f"page_{n:03d}"
+        try:
+            if nho:
+                thumb = folder / f"{stem}.thumb.jpg"
+                if not thumb.exists() or (img is not None and thumb.stat().st_mtime < img.stat().st_mtime):
+                    if img is not None:
+                        from PIL import Image
 
-            with Image.open(img) as im:
-                im = im.convert("RGB")
-                im.thumbnail((300, 425))
-                im.save(thumb, "JPEG", quality=80)
-        return FileResponse(thumb, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+                        with Image.open(img) as im:
+                            im = im.convert("RGB")
+                            im.thumbnail((THUMB_W, round(THUMB_W * 1.5)))
+                            folder.mkdir(parents=True, exist_ok=True)
+                            im.save(thumb, "JPEG", quality=80)
+                    else:
+                        with PdfSet(info["nguon_pdf"]) as pdfs:
+                            pdfs.render_jpeg(n, thumb, THUMB_W)
+                return FileResponse(thumb, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+            if img is None:
+                img = folder / f"{stem}.preview.jpg"
+                if not img.exists():
+                    with PdfSet(info["nguon_pdf"]) as pdfs:
+                        pdfs.render_jpeg(n, img, PREVIEW_W)
+        except SourceMissing as e:
+            raise HTTPException(404, str(e)) from None
+        media = "image/png" if img.suffix == ".png" else "image/jpeg"
+        return FileResponse(img, media_type=media, headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/ho-so/{ho_so_id}/trang/{n}/ocr")
     def ocr_trang(ho_so_id: int, n: int):
         load(ho_so_id)
-        cache = ocr_cache(page_img(ho_so_id, n))
+        cache = ocr_path(ho_so_id, n)
         if not cache.exists():
             raise HTTPException(404, "Trang này chưa OCR")
         data = json.loads(cache.read_text(encoding="utf-8"))
@@ -415,7 +543,7 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
         info = refresh_ho_so(ho_so_id)
         return {"tai_lieu": next(d for d in info["tai_lieu"] if d["stt"] == stt), "ho_so": info["ho_so"]}
 
-    # ------------------------------------------------------------ xuất
+    # ------------------------------------------------------------ xuất 1 hồ sơ
     @app.get("/api/ho-so/{ho_so_id}/xuat/{kieu}")
     def xuat(ho_so_id: int, kieu: str):
         info = load(ho_so_id)
@@ -425,22 +553,139 @@ def create_app(token: str | None = None, dev: bool = False, ocr_factory=None,
         out = ho_so_dir(ho_so_id) / "xuat"
         shutil.rmtree(out, ignore_errors=True)
         if kieu == "xlsx":
-            p = export_xlsx(info, out / f"{ma}.xlsx")
-            return FileResponse(p, filename=p.name,
-                                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            return _download(export_xlsx(info, out / f"{ma}.xlsx"), XLSX)
         if kieu == "csv":
-            p = export_csv(info, out / f"{ma}.csv")
-            return FileResponse(p, filename=p.name, media_type="text/csv; charset=utf-8")
+            return _download(export_csv(info, out / f"{ma}.csv"), "text/csv; charset=utf-8")
         if kieu == "pdf":
-            files = split_pdf(Path(info["tep_pdf"]), info["tai_lieu"], out / "tai_lieu")
+            try:
+                files = split_to_files(info["nguon_pdf"], info["tai_lieu"], out / "tai_lieu",
+                                       copy_whole=info["tu_thu_muc"])
+            except SourceMissing as e:
+                raise HTTPException(400, str(e)) from None
             z = out / f"{ma}_tai_lieu_pdf.zip"
             with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
                 for f in files:
                     zf.write(f, f.name)
-            return FileResponse(z, filename=z.name, media_type="application/zip")
+            return _download(z, "application/zip")
         raise HTTPException(404, "Kiểu xuất phải là xlsx, csv hoặc pdf")
 
-    # ------------------------------------------------------------ giao diện đã build (Bước 6–7)
+    # ------------------------------------------------------------ xuất nhiều hồ sơ
+    @app.get("/api/xuat/{kieu}")
+    def xuat_nhieu(kieu: str, ids: str | None = None, lo: str | None = None, q: str | None = None,
+                   trang_thai: str | None = None):
+        """kieu = xlsx: 1 file gộp mọi tài liệu của các hồ sơ (xếp theo hồ sơ); xlsx-zip: mỗi hồ sơ 1 file Excel.
+        Hồ sơ chưa có tài liệu (chưa xử lý) không có trong file."""
+        if kieu not in ("xlsx", "xlsx-zip"):
+            raise HTTPException(404, "Kiểu xuất phải là xlsx hoặc xlsx-zip")
+        chosen = selection(ids=ids, lo=lo, q=q, trang_thai=trang_thai)
+        infos = (db.load_ho_so(i) for i in chosen)
+        out = DATA_DIR / "xuat_gop"
+        shutil.rmtree(out, ignore_errors=True)
+        name = _safe(lo if lo and lo != "-" else "nhieu_ho_so")
+        stamp = time.strftime("%Y%m%d_%H%M")
+        if kieu == "xlsx":
+            count = {"ho_so": 0}
+
+            def docs():
+                for info in infos:
+                    if info["tai_lieu"]:
+                        count["ho_so"] += 1
+                        yield from info["tai_lieu"]
+
+            p = write_xlsx(docs(), out / f"{name}_{stamp}.xlsx")
+            if not count["ho_so"]:
+                raise HTTPException(400, "Chưa có hồ sơ nào được xử lý trong các hồ sơ đã chọn")
+            return _download(p, XLSX)
+        z = out / f"{name}_{stamp}_moi_ho_so_1_file.zip"
+        z.parent.mkdir(parents=True, exist_ok=True)
+        n = 0
+        used: set[str] = set()
+        with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+            for info in infos:
+                if not info["tai_lieu"]:
+                    continue
+                fname = f"{_safe(info['ho_so']['ma_ho_so'])}.xlsx"
+                while fname in used:
+                    fname = fname[:-5] + "_.xlsx"
+                used.add(fname)
+                p = write_xlsx(info["tai_lieu"], out / "tam" / fname)
+                zf.write(p, fname)
+                p.unlink()
+                n += 1
+        if not n:
+            raise HTTPException(400, "Chưa có hồ sơ nào được xử lý trong các hồ sơ đã chọn")
+        return _download(z, "application/zip")
+
+    # ------------------------------------------------------------ hàng đợi
+    @app.get("/api/hang-doi")
+    def hang_doi():
+        return jobs.summary(limit=100)
+
+    @app.post("/api/hang-doi/tam-dung")
+    def tam_dung():
+        jobs.pause()
+        return jobs.summary(limit=0)
+
+    @app.post("/api/hang-doi/tiep-tuc")
+    def tiep_tuc():
+        jobs.resume()
+        return jobs.summary(limit=0)
+
+    @app.post("/api/hang-doi/them")
+    def them_hang_doi(body: dict = Body(...)):
+        """Xếp nhiều hồ sơ. Giữ cách tách tài liệu hiện có; hồ sơ chưa xử lý lần nào: mỗi file 1 tài liệu
+        (xem pipeline.default_starts). chi_chua_ai: chỉ hồ sơ còn văn bản chưa chạy AI (vd. lô đã chạy
+        'bỏ qua AI'), và văn bản nào AI đã đọc xong thì không đọc lại."""
+        ids = []
+        for i in selection(body):
+            info = db.load_ho_so(i)
+            if not info["nguon_pdf"]:
+                continue
+            if body.get("chi_chua_ai") and info["tai_lieu"] and all(
+                    d.get("ai_trang_thai") == "xong" for d in info["tai_lieu"]):
+                continue  # đã chạy AI đủ cả rồi
+            ids.append(i)
+        params = {"khong_llm": bool(body.get("khong_llm")), "tiep_tuc": bool(body.get("chi_chua_ai"))}
+        return {"da_xep": jobs.submit_many(ids, "xu_ly", params, uu_tien=0)}
+
+    @app.post("/api/hang-doi/bo")
+    def bo_hang_doi(body: dict = Body(...)):
+        return {"da_bo": jobs.cancel_waiting(selection(body))}
+
+    # ------------------------------------------------------------ nhập thư mục
+    @app.post("/api/nhap/chon-thu-muc")
+    def chon_thu_muc(body: dict | None = Body(None)):
+        try:
+            return {"duong_dan": batch.pick_folder(str((body or {}).get("ban_dau", "")))}
+        except RuntimeError as e:
+            raise HTTPException(501, str(e)) from None
+
+    @app.post("/api/nhap/quet")
+    def quet(body: dict = Body(...)):
+        path = str(body.get("duong_dan", "")).strip().strip('"')
+        if not path:
+            raise HTTPException(400, "Cần đường dẫn thư mục")
+        return {"id": scans.start(path)}
+
+    @app.get("/api/nhap/quet/{scan_id}")
+    def quet_tien_do(scan_id: int):
+        item = scans.get(scan_id)
+        if item is None:
+            raise HTTPException(404, "Không có lần quét này (app đã khởi động lại?) — hãy quét lại")
+        return item
+
+    @app.post("/api/nhap/tao", status_code=201)
+    def nhap_tao(body: dict = Body(...)):
+        item = scans.get(int(body.get("quet_id", 0)))
+        if item is None or not item.get("ket_qua"):
+            raise HTTPException(404, "Không có kết quả quét — hãy quét lại thư mục")
+        created, errors = batch.create_from_scan(
+            item["ket_qua"], body.get("chon", []), body.get("phong", {}), body.get("ho_so", {}),
+            str(body.get("lo") or item["ket_qua"]["ten_lo"]).strip(), bool(body.get("khong_llm")),
+        )
+        return {"da_tao": len(created), "ids": created, "loi": errors}
+
+    # ------------------------------------------------------------ giao diện đã build
     if frontend_dir and frontend_dir.exists():
         app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="ui")
 

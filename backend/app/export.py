@@ -2,6 +2,7 @@
 và tách PDF hồ sơ thành từng tệp tài liệu.
 
 File xuất CHỈ gồm 23 cột của điểm c, đúng thứ tự và tên trong Thông tư; mỗi văn bản một dòng.
+Xuất nhiều hồ sơ vào 1 file: các dòng nối tiếp nhau theo hồ sơ (cột 'Mã lưu trữ tài liệu' đã gồm mã hồ sơ).
 (Thông tin phông / hồ sơ và các cột phụ để soát chỉ dùng trong app, không xuất ra.)
 """
 
@@ -12,9 +13,11 @@ from pathlib import Path
 
 import pymupdf
 from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.sources import split_to_files
 from app.tt05 import fields
 
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
@@ -34,29 +37,43 @@ def rows(docs: list[dict]) -> list[list]:
     return [[d.get(k, "") for k, _ in cols] for d in docs]
 
 
-def export_xlsx(result: dict, path: Path) -> Path:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Tài liệu"
+def write_xlsx(docs, path: Path) -> Path:
+    """Ghi các tài liệu (iterable, có thể của nhiều hồ sơ) ra 1 file Excel 23 cột.
+
+    Chế độ write_only: xuất được hàng chục nghìn dòng mà không tốn nhiều RAM (~8 giây / 30.000 dòng)."""
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet("Tài liệu")
     cols = columns()
-    for c, (_key, label) in enumerate(cols, 1):
-        cell = ws.cell(row=1, column=c, value=label)
+    for c, (key, _label) in enumerate(cols, 1):
+        ws.column_dimensions[get_column_letter(c)].width = WIDE.get(key, 16)
+    ws.freeze_panes = "A2"
+    header = []
+    for _key, label in cols:
+        cell = WriteOnlyCell(ws, value=label)
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = HEADER_FILL
         cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
         cell.border = BORDER
-    for r, values in enumerate(rows(result["tai_lieu"]), 2):
-        for c, v in enumerate(values, 1):
-            cell = ws.cell(row=r, column=c, value=v)
-            cell.border, cell.alignment = BORDER, WRAP
-    for c, (key, _label) in enumerate(cols, 1):
-        ws.column_dimensions[get_column_letter(c)].width = WIDE.get(key, 16)
+        header.append(cell)
     ws.row_dimensions[1].height = 60
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{max(len(result['tai_lieu']) + 1, 1)}"
+    ws.append(header)
+    n = 0
+    for d in docs:
+        row = []
+        for k, _ in cols:
+            cell = WriteOnlyCell(ws, value=d.get(k, ""))
+            cell.border, cell.alignment = BORDER, WRAP
+            row.append(cell)
+        ws.append(row)
+        n += 1
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(cols))}{max(n + 1, 1)}"
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
     return path
+
+
+def export_xlsx(result: dict, path: Path) -> Path:
+    return write_xlsx(result["tai_lieu"], path)
 
 
 def export_csv(result: dict, path: Path) -> Path:
@@ -70,17 +87,8 @@ def export_csv(result: dict, path: Path) -> Path:
 
 
 def split_pdf(pdf_path: Path, docs: list[dict], out_dir: Path) -> list[Path]:
-    """Tách PDF hồ sơ thành từng tệp tài liệu (tên tệp = cột 'Tệp tin tài liệu')."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    paths = []
-    with pymupdf.open(pdf_path) as src:
-        for d in docs:
-            a, _, b = str(d["trang_pdf"]).partition("-")
-            first, last = int(a) - 1, int(b or a) - 1
-            out = pymupdf.open()
-            out.insert_pdf(src, from_page=first, to_page=last)
-            p = out_dir / d["tep_tin_tai_lieu"]
-            out.save(p, deflate=True)
-            out.close()
-            paths.append(p)
-    return paths
+    """Tách 1 file PDF hồ sơ thành từng tệp tài liệu (tên tệp = cột 'Tệp tin tài liệu')."""
+    with pymupdf.open(pdf_path) as d:
+        n = d.page_count
+    return split_to_files([{"duong_dan": str(pdf_path), "ten": pdf_path.name, "so_trang": n, "trang_dau": 1}],
+                          docs, out_dir)

@@ -5,3 +5,15 @@ export const STATUS = {
   xong: ['Xong', 'bg-green-50 text-green-700'],
   loi: ['Lỗi', 'bg-red-50 text-red-700'],
 };
+
+/** Bộ lọc trạng thái ở danh sách hồ sơ (giá trị gửi backend: trang_thai). */
+export const STATUS_FILTERS = [
+  ['', 'Mọi trạng thái'],
+  ['cho', 'Đang chờ'],
+  ['dang_xu_ly', 'Đang xử lý'],
+  ['xong', 'Xong'],
+  ['loi', 'Lỗi'],
+  ['moi', 'Mới tạo'],
+  ['can_kiem_tra', 'Có tài liệu cần kiểm tra'],
+  ['chua_soat', 'Chưa soát xong'],
+];

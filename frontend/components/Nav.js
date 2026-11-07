@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Archive, Bot, Cpu, FolderOpen } from 'lucide-react';
+import { Archive, Bot, Cpu, FolderInput, FolderOpen, Loader2, Pause } from 'lucide-react';
 import { api } from '@/lib/api';
 
 const LINKS = [
   { href: '/', label: 'Hồ sơ', icon: FolderOpen },
+  { href: '/nhap/', label: 'Nhập thư mục', icon: FolderInput },
   { href: '/model-ai/', label: 'Model AI', icon: Bot },
   { href: '/may/', label: 'Kiểm tra máy', icon: Cpu },
 ];
@@ -66,6 +67,7 @@ export default function Nav() {
           ) : sys ? (
             <>
               {sys.nguon_dien && <span className="badge bg-amber-50 text-amber-800">⚠ {sys.nguon_dien}</span>}
+              <QueueBadge q={sys.hang_doi} />
               <Status ok={sys.ocr_da_nap} label="OCR" />
               <Status ok={sys.llm_dang_chay} loading={sys.llm_dang_nap} error={sys.llm_loi} label="AI" />
             </>
@@ -89,5 +91,20 @@ function Status({ ok, loading, error, label }) {
     <span className={`badge ${cls}`} title={error || ''}>
       {label}: {text}
     </span>
+  );
+}
+
+function QueueBadge({ q }) {
+  if (!q || (!q.dang_chay && !q.so_cho)) return null;
+  const n = q.so_cho + (q.dang_chay ? 1 : 0);
+  return (
+    <Link
+      href="/"
+      className={`badge gap-1 ${q.tam_dung ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'}`}
+      title="Hàng đợi xử lý — xem ở trang Hồ sơ"
+    >
+      {q.tam_dung ? <Pause size={11} /> : <Loader2 size={11} className="animate-spin" />}
+      {q.tam_dung ? `Tạm dừng · ${n} hồ sơ` : `Đang xử lý · còn ${n} hồ sơ`}
+    </Link>
   );
 }

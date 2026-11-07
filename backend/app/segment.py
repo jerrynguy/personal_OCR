@@ -1,8 +1,11 @@
 """Tách PDF nhiều trang thành từng văn bản.
 
-Một trang là TRANG ĐẦU của văn bản mới nếu vùng đầu trang có quốc hiệu
-('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM' / 'Độc lập - Tự do - Hạnh phúc') hoặc dòng 'Số: ...'.
-Các trang còn lại được nối vào văn bản phía trước. Người dùng sửa lại ở màn soát nếu sai.
+App KHÔNG tự tách theo nội dung (người dùng đã chốt: tự tách chia sai với file gộp nhiều thứ, vd. nghị định
+kèm phụ lục). Ranh giới do người dùng đánh dấu -> split_by_boundaries().
+
+is_first_page() chỉ dùng để GỢI Ý trên màn "Tách văn bản" (người dùng bấm xác nhận): trang có quốc hiệu
+('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM' / 'Độc lập - Tự do - Hạnh phúc') hoặc dòng 'Số: ...' ở đầu trang.
+split_documents() (tự tách) chỉ còn dùng cho script dòng lệnh Bước 3.
 """
 
 from __future__ import annotations
@@ -49,3 +52,20 @@ def split_by_boundaries(pages: list[OcrPage], page_numbers: list[int], starts: l
         docs[-1].pages.append(page)
         docs[-1].page_numbers.append(no)
     return docs
+
+
+def text_layer_page(page) -> OcrPage | None:
+    """Trang PDF có sẵn lớp chữ (PDF tạo từ Word, hoặc máy scan đã nhận dạng chữ) -> dùng để gợi ý
+    trang đầu ngay, không cần OCR. Không có chữ -> None."""
+    from app.ocr import OcrLine
+
+    lines = []
+    for block in page.get_text("dict").get("blocks", []):
+        for line in block.get("lines", []):
+            text = " ".join(s["text"] for s in line.get("spans", [])).strip()
+            if text:
+                x0, y0, x1, y1 = (int(v) for v in line["bbox"])
+                lines.append(OcrLine(text, 1.0, [x0, y0, x1, y1], [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
+    if sum(len(l.text) for l in lines) < 20:
+        return None
+    return OcrPage("", int(page.rect.width), int(page.rect.height), 0, lines)

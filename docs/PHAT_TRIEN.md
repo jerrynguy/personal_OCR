@@ -21,7 +21,8 @@ Máy mục tiêu: HP ZBook Firefly G8 (i7-1185G7, 32GB RAM, Intel Iris Xe, Windo
 | **3** | Schema TT05 + luật trích xuất (số/ký hiệu, ngày, tên loại, cơ quan, độ mật, tờ số) + tách PDF thành từng văn bản | ✅ xong (16/16 trường trên ZBook) |
 | **4** | Lưu SQLite + xuất Excel / CSV + tách PDF từng tài liệu (chạy bằng dòng lệnh) | ✅ xong |
 | **5** | Backend FastAPI (hàng đợi xử lý, tiến độ, sửa tay, xuất file) | ✅ xong (3 trang / 2 văn bản: 94s trên ZBook) |
-| **6** | Giao diện: hồ sơ, tải PDF, tiến độ, màn soát, tách văn bản, xuất file, model AI, kiểm tra máy | ⏳ đang làm |
+| **6** | Giao diện: hồ sơ, tải PDF, tiến độ, màn soát, tách văn bản, xuất file, model AI, kiểm tra máy | ✅ xong (chờ chạy thử trên Windows) |
+| **6b** | Xử lý hàng loạt: nhập cả thư mục, hàng đợi bền (qua đêm), PDF dài (gợi ý trang đầu, phím tắt), xuất Excel gộp | ✅ xong (thử bằng OCR/AI giả — chờ dữ liệu thật) |
 | 7 | Electron + đóng gói bộ cài Windows | |
 
 ## Cấu trúc thư mục
@@ -45,12 +46,15 @@ personal_OCR/
 │  │  ├─ db.py              lưu Phông / Hồ sơ / Tài liệu vào SQLite (data/sohoa.db)
 │  │  ├─ export.py          xuất Excel / CSV, tách PDF thành từng tài liệu
 │  │  ├─ services.py        giữ OCR / LLM trong bộ nhớ; LLM tự tắt sau 10 phút không dùng
-│  │  ├─ jobs.py            hàng đợi xử lý (mỗi lần 1 hồ sơ), tiến độ, hủy
+│  │  ├─ jobs.py            hàng đợi BỀN trong CSDL (mỗi lần 1 hồ sơ), tạm dừng, tiếp tục khi mở lại, ước tính
+│  │  ├─ sources.py         nhiều file PDF của 1 hồ sơ = 1 dãy trang liên tục; khóa dùng chung cho PyMuPDF
+│  │  ├─ batch.py           nhập thư mục: quét, gợi ý mã hồ sơ, gợi ý file gộp, tạo hàng loạt, hộp chọn thư mục
 │  │  ├─ pipeline.py        xử lý trọn 1 hồ sơ; giữ ô sửa tay khi xử lý lại
 │  │  ├─ api.py             API cho giao diện (FastAPI), có token
 │  │  ├─ hardware.py        nhận diện CPU / RAM / card đồ họa, chọn cách chạy LLM
 │  │  └─ winperf.py         chặn Windows hạ tốc độ tiến trình nền
 │  │  └─ vietocr_configs/   config VietOCR (bản sao, để không phải tải qua mạng)
+│  ├─ tests/              kiểm thử không cần model thật (OCR giả + AI giả) — xem tests/README.md
 │  └─ scripts/
 │     ├─ download_models.py   tải model (1 lần, cần mạng)
 │     ├─ make_sample_pdf.py   tạo PDF scan mẫu (nội dung giả)
@@ -65,7 +69,8 @@ personal_OCR/
 │     ├─ step5_api_test.py      kiểm tra backend qua API
 │     └─ kiem_tra_may.py        phần cứng máy này + cấu hình app sẽ dùng + còn thiếu gì
 ├─ frontend/  giao diện (Next.js, xuất ra file tĩnh frontend/out/ — backend phục vụ trực tiếp)
-│  ├─ app/page.js            danh sách hồ sơ + tạo hồ sơ
+│  ├─ app/page.js            danh sách hồ sơ (lọc theo lô / trạng thái, phân trang) + hàng đợi + xuất cả lô
+│  ├─ app/nhap/page.js       nhập cả thư mục: bảng xem trước, gợi ý file gộp, tạo hàng loạt
 │  ├─ app/ho-so/page.js      chi tiết hồ sơ: tải PDF, tiến độ, soát tài liệu, thông tin hồ sơ, tách văn bản, xuất
 │  ├─ app/model-ai/page.js   chọn / tải lên model AI
 │  ├─ app/may/page.js        kiểm tra máy
@@ -453,6 +458,53 @@ PowerShell mở trong lúc dùng; tắt bằng Ctrl+C. (Bước 7 sẽ thay cử
 
 ---
 
+## Bước 6b — Xử lý hàng loạt
+
+Người dùng có dữ liệu thật dạng: thư mục lớn (vd. `Đà Lạt 1L`) -> ~1000 thư mục con -> mỗi thư mục con là 1 hồ sơ,
+mỗi file PDF là 1 tài liệu (tên file không theo quy tắc cố định); có thư mục chứa thêm 1 file là bản gộp của các file kia.
+Và có PDF 1 hồ sơ chứa hàng trăm tài liệu.
+
+### Quyết định người dùng chọn (2026-11-07)
+
+| Câu hỏi | Người dùng chọn |
+|---|---|
+| Mã hồ sơ điền sẵn | Phần giống nhau ở đầu tên các file (cắt tại `.` `_` `-` khoảng trắng); thư mục 1 file / không có phần chung / bị trùng giữa các thư mục -> *tên thư mục cha + thư mục con*. Sửa được ở bảng xem trước |
+| File gộp | App **gợi ý** (so nội dung trang), vẫn để tích; có nút bỏ tích hết file được gợi ý |
+| Cột 22 "Tệp tin tài liệu" | **Tên file gốc** khi tài liệu trùng đúng 1 file (nhập thư mục); còn lại: mã lưu trữ + `.pdf` |
+| Xuất nhiều hồ sơ | **Cả hai**: 1 file Excel gộp, và `.zip` mỗi hồ sơ 1 file Excel (đều đúng 23 cột) |
+
+### Thiết kế
+
+- **Không sao chép file gốc** (hàng nghìn file sẽ tốn gấp đôi ổ cứng): `ho_so.ds_pdf` = danh sách file
+  `{duong_dan, ten, so_trang}`; trang của hồ sơ đánh số liên tục qua các file (`sources.PdfSet`). Hồ sơ tải lên vẫn
+  dùng `goc.pdf` như cũ. File gốc bị di chuyển -> lỗi rõ ràng (`SourceMissing`), giao diện báo file thiếu.
+- **Không giữ ảnh 300 DPI**: mỗi trang render 300 DPI -> OCR -> lưu `page_NNN.jpg` (~150 DPI, ~100–200 KB, đã xoay
+  thẳng, toạ độ OCR vẫn theo ảnh gốc — giao diện tự co theo `width/height` trong OCR) -> xóa PNG. Trước đây giữ
+  PNG 300 DPI: 30.000 trang ≈ hàng trăm GB. Hồ sơ cũ có `page_NNN.png` vẫn xem được.
+- **Hàng đợi bền** (`jobs.py`): hồ sơ chờ = `trang_thai='cho'` + tham số trong `cho_xu_ly`; thứ tự `uu_tien DESC,
+  cho_luc` (việc người dùng bấm trên 1 hồ sơ = 1, hàng loạt = 0). Mở app: hồ sơ `dang_xu_ly` dở -> xếp lại đầu hàng
+  với `tiep_tuc` (văn bản AI đã đọc xong thì giữ, không đọc lại). Tạm dừng = dừng NGAY hồ sơ đang chạy và xếp lại
+  đúng chỗ cũ; trạng thái tạm dừng lưu trong bảng `cai_dat`. Lỗi / hủy luôn đưa hồ sơ ra khỏi hàng (không kẹt).
+  Còn việc -> `SetThreadExecutionState` giữ Windows không ngủ. Ước tính thời gian theo tốc độ đo được (lưu lại).
+- **Ranh giới**: nhập thư mục -> mỗi file 1 tài liệu (`ranh_gioi` = trang đầu từng file). Chưa xử lý lần nào ->
+  mặc định cũng là trang đầu từng file (`pipeline.default_starts`). Vẫn không tự tách theo nội dung.
+- **Gợi ý file gộp** (`batch.merged_suggestions`, chỉ thư mục >= 3 file): (1) dấu vân tay = md5 luồng ảnh scan lớn
+  nhất của trang (không giải nén -> rất nhanh); file M được gợi ý khi mọi trang của M trùng trang của >= 2 file khác.
+  (2) Không trùng byte (file gộp đã lưu lại) -> chỉ khi số trang M = tổng các file kia: so ảnh 48x68 xám từng trang
+  theo đúng thứ tự ghép.
+- **Gợi ý trang đầu** (màn Tách văn bản): `segment.is_first_page` (quốc hiệu / dòng "Số:") trên kết quả OCR, hoặc lớp
+  chữ có sẵn của PDF. Cần OCR trước -> job `kind='ocr'` (POST `/doc-chu`), kết quả OCR dùng lại khi xử lý.
+- **PyMuPDF không an toàn đa luồng** -> mọi thao tác PDF qua `sources.pdf_lock` (luồng xử lý, luồng quét, request ảnh).
+- **Xuất Excel lớn**: openpyxl `write_only` (~8 giây / 30.000 dòng).
+
+### Đo trên máy cloud (OCR / AI giả, chỉ để xem phần khung có chịu tải không)
+
+1000 thư mục / 3.333 file / 333 file gộp: quét 5 giây (tìm đủ 333 file gộp), tạo 1000 hồ sơ 1 giây; danh sách,
+hàng đợi 3–5 ms; xóa cả lô 2 giây. Thời gian thật do OCR (~3–5 giây/trang) và AI (~30–60 giây/tài liệu) quyết định:
+vd. 7.000 trang ≈ 6–10 giờ chỉ riêng OCR -> chạy qua nhiều đêm, hoặc "bỏ qua AI" trước rồi chạy AI sau.
+
+---
+
 ## File xuất ra có gì? (23 cột — điểm c khoản 1 Điều 4 TT 05/2025/TT-BNV)
 
 Mỗi văn bản trong PDF là **một dòng**. Chỉ xuất dữ liệu **tài liệu** (điểm c); thông tin phông / hồ sơ
@@ -481,7 +533,7 @@ chỉ dùng trong app để nhập một lần các giá trị chung.
 | 19 | Quy trình xử lý (đối với tài liệu gốc điện tử) | để trống — không áp dụng cho tài liệu số hóa |
 | 20 | Chế độ lập tài liệu lưu trữ dự phòng | nhập 1 lần cho cả hồ sơ |
 | 21 | Tình trạng lập tài liệu lưu trữ dự phòng | nhập 1 lần cho cả hồ sơ |
-| 22 | Tệp tin tài liệu | tự tính: tên file PDF tách riêng của văn bản |
+| 22 | Tệp tin tài liệu | tự tính: tên file PDF tách riêng của văn bản (nhập thư mục: tên file gốc) |
 | 23 | Ghi chú | nhập tay khi soát |
 
 **OCR + AI đọc được từ ảnh scan: 8 cột** (4–10, 14). 4 cột tự tính/tự đếm. 7 cột không có trên

@@ -2,7 +2,7 @@
 
 Phần mềm giúp **số hóa hồ sơ lưu trữ** trên máy tính của bạn:
 
-1. Bạn đưa vào **file PDF scan** của một hồ sơ.
+1. Bạn đưa vào **file PDF scan** của một hồ sơ — hoặc **cả một thư mục hàng trăm file** đã số hóa.
 2. Phần mềm **đọc chữ** trên từng trang (OCR) và dùng **AI** để điền thông tin từng tài liệu: tên loại,
    số, ký hiệu, ngày ban hành, cơ quan ban hành, trích yếu, từ khóa…
 3. Bạn **xem lại, sửa** nếu cần, rồi **xuất file Excel** gồm đúng **23 cột** theo
@@ -19,10 +19,12 @@ Phần mềm giúp **số hóa hồ sơ lưu trữ** trên máy tính của bạ
 2. [Cài đặt (làm một lần)](#2-cài-đặt-làm-một-lần)
 3. [Mở phần mềm](#3-mở-phần-mềm)
 4. [Số hóa một hồ sơ — từng bước](#4-số-hóa-một-hồ-sơ--từng-bước)
-5. [File Excel xuất ra có gì](#5-file-excel-xuất-ra-có-gì)
-6. [Các việc khác](#6-các-việc-khác)
-7. [Gặp lỗi thì làm gì](#7-gặp-lỗi-thì-làm-gì)
-8. [Cập nhật lên bản mới](#8-cập-nhật-lên-bản-mới)
+5. [Số hóa cả một thư mục (hàng trăm file)](#5-số-hóa-cả-một-thư-mục-hàng-trăm-file)
+6. [Một file PDF có rất nhiều tài liệu](#6-một-file-pdf-có-rất-nhiều-tài-liệu)
+7. [File Excel xuất ra có gì](#7-file-excel-xuất-ra-có-gì)
+8. [Các việc khác](#8-các-việc-khác)
+9. [Gặp lỗi thì làm gì](#9-gặp-lỗi-thì-làm-gì)
+10. [Cập nhật lên bản mới](#10-cập-nhật-lên-bản-mới)
 
 ---
 
@@ -175,7 +177,98 @@ File tải về nằm trong thư mục **Downloads** của máy.
 
 ---
 
-## 5. File Excel xuất ra có gì
+## 5. Số hóa cả một thư mục (hàng trăm file)
+
+Dùng khi tài liệu **đã được số hóa sẵn thành từng file PDF**, xếp theo thư mục, ví dụ:
+
+```
+Đà Lạt 1L\            <- thư mục bạn chọn (gọi là 1 "lô")
+   1\                 <- mỗi thư mục con có file PDF = 1 HỒ SƠ
+      H01.15.01.100001.pdf     <- mỗi file PDF = 1 TÀI LIỆU
+      H01.15.01.100002.pdf
+   2\
+   ...
+```
+
+> App **đọc thẳng** file trong thư mục của bạn, **không sao chép** (đỡ tốn ổ cứng). Vì vậy **đừng di chuyển
+> hay đổi tên** thư mục cho đến khi xử lý và xuất xong.
+
+### Bước 1 — Chọn thư mục và xem bảng
+
+Bấm **Nhập thư mục** ở thanh trên cùng.
+
+![Nhập thư mục](docs/images/12-nhap-thu-muc.png)
+
+| Số | Ý nghĩa |
+|---|---|
+| ① | **Chọn thư mục…** — mở hộp chọn thư mục của Windows (có thể nằm sau cửa sổ trình duyệt, xem thanh tác vụ). Hoặc dán đường dẫn vào ô bên cạnh rồi bấm **Đọc thư mục** |
+| ② | App **gợi ý** các file có vẻ là **bản gộp** của những file khác cùng thư mục (vd. `…1.pdf` = `…100001.pdf` + `…100002.pdf`). App **không tự bỏ**; bấm nút này để bỏ tích hết các file được gợi ý |
+| ③ | **Mã hồ sơ** — app điền sẵn phần giống nhau ở đầu tên các file (vd. `H01.15.01`); thư mục chỉ có 1 file hoặc tên file không có phần chung thì lấy *tên thư mục cha + thư mục con* (vd. `Đà Lạt 1L.2`). Sửa trực tiếp nếu cần |
+| ④ | Bấm để **xem từng file** trong thư mục và bỏ tích file không muốn |
+| ⑤ | Nhãn ⚠ cho biết file này trùng nội dung với những file nào |
+
+Thư mục **đã nhập trước đây** được bỏ tích sẵn (tránh nhập trùng). File hỏng / đặt mật khẩu được đánh dấu đỏ và không nhập.
+
+### Bước 2 — Tạo và xếp hàng xử lý
+
+Kéo xuống cuối bảng:
+
+![Tạo hàng loạt](docs/images/13-nhap-tao.png)
+
+| Số | Ý nghĩa |
+|---|---|
+| ① | **Tên lô** — để sau này lọc và xuất Excel cả lô (mặc định là tên thư mục bạn chọn) |
+| ② | **Thông tin chung** cho mọi hồ sơ trong lô: thời hạn lưu trữ, mức độ tiếp cận, phông… (nhớ theo lần trước) |
+| ③ | **Bỏ qua AI cho nhanh** — chỉ đọc tên loại, số, ký hiệu, ngày (vài giây mỗi trang). Cơ quan ban hành, trích yếu, từ khóa để trống; chạy AI bổ sung sau được |
+| ④ | **Tạo … hồ sơ và xếp hàng xử lý** |
+
+### Bước 3 — Để máy chạy (có thể qua đêm)
+
+App xử lý **lần lượt từng hồ sơ** ở nền. Xem tiến độ ở trang **Hồ sơ**:
+
+![Hàng đợi và xuất cả lô](docs/images/14-hang-doi.png)
+
+| Số | Ý nghĩa |
+|---|---|
+| ① | Hồ sơ đang xử lý, số hồ sơ còn chờ, **giờ xong dự kiến**. Bấm **Tạm dừng** khi cần dùng máy việc khác, **Chạy tiếp** để làm tiếp |
+| ② | Chọn **lô** để chỉ xem hồ sơ của lô đó (còn lọc được theo trạng thái, tìm theo mã) |
+| ③ | **Excel gộp (1 file)** — mọi tài liệu của các hồ sơ đang lọc (hoặc đang tích) trong **1 file**, xếp theo hồ sơ |
+| ④ | **Mỗi hồ sơ 1 file Excel** — file `.zip` chứa riêng file Excel của từng hồ sơ |
+| ⑤ | **Chạy AI phần còn thiếu** — cho lô đã chạy "bỏ qua AI"; tài liệu AI đã đọc rồi thì giữ nguyên |
+
+- **Nhớ cắm sạc.** Khi còn hồ sơ chờ, app tự giữ máy **không ngủ** (màn hình vẫn tắt được bình thường).
+- **Tắt app giữa chừng** (kể cả mất điện): lần mở sau app **tự làm tiếp** từ hồ sơ đang dở.
+- Trong lúc chờ vẫn **mở, xem, sửa** được các hồ sơ đã xong. Bấm vào một hồ sơ đang chờ để xử lý nó **trước**
+  (nút *Xử lý lại*) hoặc bỏ nó khỏi hàng đợi.
+- Mỗi file PDF thành 1 tài liệu. Nếu một file chứa nhiều tài liệu: mở hồ sơ → tab **Tách văn bản** → tách lại.
+- Cột **Tệp tin tài liệu** trong Excel ghi **tên file gốc** (vd. `H01.15.01.100001.pdf`).
+
+---
+
+## 6. Một file PDF có rất nhiều tài liệu
+
+Làm như [mục 4](#4-số-hóa-một-hồ-sơ--từng-bước). Ở Bước 3 (tách tài liệu), với file dài, app giúp tách nhanh hơn:
+
+![Đọc chữ để gợi ý](docs/images/15-file-dai-doc-chu.png)
+
+① Bấm **Đọc chữ để gợi ý**: app đọc chữ mọi trang trước (khoảng 5 giây mỗi trang; phần này **dùng lại** khi xử lý,
+không mất công). Xong, app **gợi ý** những trang có vẻ là trang đầu tài liệu:
+
+![Gợi ý trang đầu tài liệu](docs/images/16-file-dai-goi-y.png)
+
+| Số | Ý nghĩa |
+|---|---|
+| ① | **Đánh dấu cả … trang gợi ý** một lần, rồi chỉ cần xem lại và bấm bỏ những trang gợi ý sai |
+| ② | Trang được gợi ý có **viền cam nét đứt** và nhãn **Gợi ý** (trang có quốc hiệu hoặc dòng "Số: …" ở đầu trang). Bấm vào trang để xác nhận |
+| ③ | **Cỡ ảnh**: *Nhỏ* để thấy nhiều trang một lúc, *Lớn* để nhìn rõ |
+| ④ | **Phím tắt**: ← → ↑ ↓ di chuyển giữa các trang, **Space** hoặc **Enter** đánh dấu / bỏ trang đầu, **N** nhảy tới trang gợi ý kế tiếp chưa đánh dấu |
+
+> App **chỉ gợi ý, không tự tách**: văn bản gộp nhiều thứ (vd. nghị định kèm phụ lục có quốc hiệu riêng) thì
+> trang phụ lục cũng được gợi ý — bạn bỏ chọn trang đó.
+
+---
+
+## 7. File Excel xuất ra có gì
 
 Mỗi tài liệu là **một dòng**, gồm **23 cột** đúng thứ tự và tên trong Thông tư 05/2025/TT-BNV:
 
@@ -202,16 +295,17 @@ Mỗi tài liệu là **một dòng**, gồm **23 cột** đúng thứ tự và 
 | 19 | Quy trình xử lý (đối với tài liệu gốc điện tử) | để trống — không áp dụng cho tài liệu số hóa |
 | 20 | Chế độ lập tài liệu lưu trữ dự phòng | thông tin chung của hồ sơ |
 | 21 | Tình trạng lập tài liệu lưu trữ dự phòng | thông tin chung của hồ sơ |
-| 22 | Tệp tin tài liệu | tự tạo: tên file PDF tách riêng |
+| 22 | Tệp tin tài liệu | tự tạo: tên file PDF tách riêng (nhập từ thư mục: **tên file gốc**) |
 | 23 | Ghi chú | bạn điền khi soát |
 
 ---
 
-## 6. Các việc khác
+## 8. Các việc khác
 
 ### Xem lại các hồ sơ đã làm
 
-Bấm **Hồ sơ** ở thanh trên cùng. Bấm vào một dòng ① để mở lại hồ sơ đó.
+Bấm **Hồ sơ** ở thanh trên cùng. Bấm vào một dòng ① để mở lại hồ sơ đó. Có nhiều hồ sơ thì dùng ô tìm kiếm,
+chọn lô hoặc trạng thái (vd. *Có tài liệu cần kiểm tra*, *Chưa soát xong*) để lọc.
 
 ![Danh sách hồ sơ](docs/images/09-danh-sach-ho-so.png)
 
@@ -253,7 +347,7 @@ bằng cách nào. Ảnh dưới chụp trên máy thử — máy bạn sẽ hi�
 
 ---
 
-## 7. Gặp lỗi thì làm gì
+## 9. Gặp lỗi thì làm gì
 
 | Hiện tượng | Cách xử lý |
 |---|---|
@@ -264,6 +358,9 @@ bằng cách nào. Ảnh dưới chụp trên máy thử — máy bạn sẽ hi�
 | Cảnh báo **"ảnh scan độ phân giải thấp"** | Scan lại tài liệu ở mức **300 DPI** để đọc chính xác hơn |
 | Chữ đọc sai nhiều | Kiểm tra bản scan có rõ, thẳng không. Sửa trực tiếp ở màn soát |
 | `mo-app.bat` báo **"Chưa cài đặt app"** | Bấm đúp `cai-dat.bat` trước |
+| Hồ sơ nhập từ thư mục báo **"Không thấy file …"** | File gốc đã bị di chuyển / đổi tên. Để file về đúng chỗ cũ rồi mở hồ sơ, bấm **Xử lý lại** |
+| Bấm **Chọn thư mục…** mà không thấy hộp chọn | Hộp chọn có thể nằm sau cửa sổ trình duyệt (xem thanh tác vụ). Hoặc mở thư mục trong File Explorer, bấm vào thanh địa chỉ, chép đường dẫn rồi dán vào ô |
+| Hàng đợi đứng yên | Xem có đang **Tạm dừng** không (trang **Hồ sơ**) → bấm **Chạy tiếp** |
 | Lỗi khác | Chụp màn hình **cửa sổ đen** + trình duyệt, gửi người hỗ trợ |
 
 ### Nếu `cai-dat.bat` báo thiếu Python / Node.js
@@ -277,13 +374,14 @@ Máy không có công cụ cài tự động (winget) thì cài tay:
 
 ---
 
-## 8. Cập nhật lên bản mới
+## 10. Cập nhật lên bản mới
 
 1. Đóng cửa sổ đen (nếu phần mềm đang mở).
 2. Tải ZIP bản mới như [Bước 2.1](#bước-21--tải-phần-mềm-về-máy) và giải nén **đè lên** thư mục cũ
    (chọn **Replace** khi Windows hỏi). Dữ liệu hồ sơ và model **không bị mất** — chúng nằm trong
    thư mục `data` và `models`, bản ZIP không có hai thư mục này.
 3. Bấm đúp `cai-dat.bat` (phần nào đã có sẽ được bỏ qua, chỉ mất vài phút).
+4. Lần mở đầu tiên sau khi cập nhật, app tự nâng cấp dữ liệu cũ — các hồ sơ đã làm vẫn còn nguyên.
 
 > Người dùng Git: thay bước 2 bằng `git pull` trong thư mục phần mềm.
 

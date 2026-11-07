@@ -109,7 +109,7 @@ def main() -> int:
     print(f"6) Tải Excel: {xlsx} ({len(r.content) // 1024} KB)")
 
     print("\nDanh sách hồ sơ trong CSDL:")
-    for h in call("GET", "/ho-so").json():
+    for h in call("GET", "/ho-so", params={"moi_trang": 500}).json()["ho_so"]:
         print(f"   [{h['id']}] {h['ma_ho_so']:18s} {h['trang_thai']:10s} {h['so_tai_lieu']} tài liệu, "
               f"{h['can_kiem_tra']} cần kiểm tra, {h['da_soat']} đã soát")
     return 0

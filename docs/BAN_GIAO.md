@@ -1,6 +1,6 @@
 # Bàn giao — đọc file này trước khi làm tiếp
 
-Tài liệu để một phiên làm việc mới (người hoặc AI) nắm ngay bối cảnh. Cập nhật: 2026-11-07.
+Tài liệu để một phiên làm việc mới (người hoặc AI) nắm ngay bối cảnh. Cập nhật: 2026-11-07 (sau khi làm xử lý hàng loạt).
 
 ## 1. App là gì
 
@@ -21,19 +21,22 @@ backend/   Python (FastAPI, chỉ nghe 127.0.0.1, có token)
   app/rules.py        luật đọc: tên loại, số, ký hiệu, ngày, cơ quan (thô), độ mật/khẩn
   app/extract.py      luật + LLM -> bản ghi TT05; LLM chỉ điền cơ quan, trích yếu, từ khóa, người ký, chức vụ
   app/llm.py          llama.cpp (llama-server), ép JSON schema; tự chọn bản cpu/cuda/vulkan theo phần cứng
-  app/pipeline.py     xử lý 1 hồ sơ: tách trang -> OCR -> chia tài liệu theo ranh giới -> luật -> AI (hiện dần)
-  app/jobs.py         hàng đợi: mỗi lần 1 hồ sơ, tiến độ theo giai đoạn, hủy
+  app/pipeline.py     xử lý 1 hồ sơ: OCR từng trang -> chia tài liệu theo ranh giới -> luật -> AI (hiện dần)
+  app/jobs.py         hàng đợi BỀN trong CSDL: mỗi lần 1 hồ sơ, tạm dừng, tự làm tiếp khi mở lại app
+  app/sources.py      nhiều file PDF gốc của 1 hồ sơ = 1 dãy trang (nhập thư mục: không sao chép file)
+  app/batch.py        nhập thư mục: quét, gợi ý mã hồ sơ / file gộp, tạo hàng loạt, hộp chọn thư mục Windows
   app/api.py          API cho giao diện; app/db.py SQLite; app/export.py Excel/CSV 23 cột + tách PDF
   app/schema/tt05.json  danh sách trường (phông 10, hồ sơ 19, tài liệu 23 — nhãn nguyên văn TT05)
-frontend/  Next.js xuất file tĩnh (frontend/out), backend phục vụ trực tiếp
+frontend/  Next.js xuất file tĩnh (frontend/out), backend phục vụ trực tiếp; trang Nhập thư mục ở app/nhap/
+backend/tests/  kiểm thử KHÔNG cần model thật: OCR giả + AI giả + dữ liệu giả + Playwright (xem tests/README.md)
 cai-dat.bat (+ tools/cai-dat.ps1), mo-app.bat   bấm đúp để cài / mở app (CHƯA chạy thử trên Windows)
 models/, data/   (không commit) model OCR + LLM, CSDL + file hồ sơ
 ```
 
 - Model AI mặc định: `gpt-oss-20b-MXFP4.gguf` (đổi được ở trang Model AI). Trên ZBook: ~30–60 giây/tài liệu
   cho phần AI, OCR ~3–5 giây/trang. PDF mẫu 3 trang / 2 tài liệu: ~94 giây.
-- Kiểm thử trong môi trường cloud: không tải được model thật (HuggingFace/Paddle bị chặn) → dùng OCR giả và
-  llama-server giả (xem cách làm trong lịch sử commit); kiểm thử giao diện bằng Playwright.
+- Kiểm thử trong môi trường cloud: không tải được model thật (HuggingFace/Paddle bị chặn) → dùng `backend/tests/`
+  (server_gia.py = backend thật + OCR giả + AI giả; các test API + giao diện). Chạy lại sau mỗi thay đổi lớn.
 
 ## 3. Quyết định người dùng đã chốt (KHÔNG làm ngược lại)
 
@@ -51,37 +54,51 @@ models/, data/   (không commit) model OCR + LLM, CSDL + file hồ sơ
    phông…) thu gọn, nhớ theo lần trước. Màn soát chỉ hiện trước các trường đọc từ văn bản.
 6. Mã lưu trữ tài liệu = mã hồ sơ + số thứ tự 2 chữ số (vd. `H01.2025.01.15.01`) — người dùng đồng ý.
    Số/ký hiệu: "Số: 12/2025/NĐ-CP" -> số `12`, ký hiệu `2025/NĐ-CP`.
+7. Xử lý hàng loạt (người dùng chọn 2026-11-07):
+   - Nhập thư mục: mỗi thư mục có PDF = 1 hồ sơ, mỗi file PDF = 1 tài liệu (ranh giới theo file).
+   - Mã hồ sơ điền sẵn = **phần chung đầu tên các file**; không có / 1 file / trùng giữa thư mục -> *thư mục cha +
+     thư mục con*. Người dùng sửa được ở bảng xem trước.
+   - File gộp: app **gợi ý** (so nội dung), vẫn để tích, có nút bỏ tích hết — **không tự bỏ**.
+   - Cột "Tệp tin tài liệu" của tài liệu nhập từ thư mục = **tên file gốc**.
+   - Xuất nhiều hồ sơ: **cả hai** — 1 file Excel gộp và .zip mỗi hồ sơ 1 file (đều đúng 23 cột).
+   - PDF dài: app chỉ **gợi ý** trang đầu (quốc hiệu / "Số:") để người dùng xác nhận, **không tự tách**.
 
-## 4. VIỆC TIẾP THEO (yêu cầu chính, chưa làm)
+## 4. Xử lý hàng loạt — ĐÃ LÀM (2026-11-07), chờ thử với dữ liệu thật
 
-Người dùng: *"Đây là làm cho từng tài liệu riêng lẻ. Làm cả 1 thư mục hàng trăm file đã số hóa được không?
-Hoặc 1 file PDF của 1 hồ sơ có hàng chục, hàng trăm file tài liệu bên trong được không?"*
+Yêu cầu: *"Làm cả 1 thư mục hàng trăm file đã số hóa được không? Hoặc 1 file PDF của 1 hồ sơ có hàng chục, hàng
+trăm file tài liệu bên trong được không?"* Chi tiết thiết kế: `docs/PHAT_TRIEN.md` mục Bước 6b. Hướng dẫn người dùng:
+README mục 5, 6.
 
-Dữ liệu thật (theo mô tả của người dùng):
-- Một thư mục lớn (vd. **"Đà Lạt 1L"**) chứa các **thư mục con đánh số** (1, 2, … ~1000). **Mỗi thư mục con
-  là 1 hồ sơ.**
-- Trong thư mục con: các file PDF đã số hóa, **thường mỗi file là 1 tài liệu** (1 trang như giấy khen, hoặc
-  nhiều trang như quyết định). Tên file kiểu `H..xx.yy.1.pdf`, `H..xx.yy.100001.pdf`… (không cố định).
-- Có thư mục chứa **thêm 1 file là bản gộp** của các file còn lại (vd. `…1.pdf` = `…100001.pdf` +
-  `…100002.pdf`). Thư mục chỉ có 1 file `…1.pdf` thì đó là file bình thường.
+Đã có:
+- **Nhập thư mục** (trang *Nhập thư mục*): nút mở hộp chọn thư mục của Windows (tkinter, chạy tiến trình riêng) hoặc
+  dán đường dẫn -> quét nền có tiến độ -> bảng xem trước (sửa mã, tiêu đề; tích / bỏ từng thư mục, từng file; gợi ý
+  file gộp; thư mục đã nhập trước được bỏ tích sẵn; mã trùng báo đỏ) -> thông tin chung cho cả lô (nhớ lần trước),
+  tên lô, tùy chọn "bỏ qua AI" -> tạo hàng loạt + xếp hàng.
+- **Hàng đợi bền**: chạy qua đêm, tạm dừng / chạy tiếp, tắt app (kể cả mất điện) -> mở lại tự làm tiếp, không đọc
+  lại văn bản AI đã xong; giữ Windows không ngủ khi còn việc; ước tính giờ xong theo tốc độ đo được.
+- **Danh sách hồ sơ**: lọc theo lô / trạng thái (cả "có tài liệu cần kiểm tra", "chưa soát xong") / tìm kiếm, phân
+  trang 50; tích chọn; thao tác cho hồ sơ đang tích hoặc đang lọc: Excel gộp, zip mỗi hồ sơ 1 Excel, "Chạy AI phần
+  còn thiếu", bỏ khỏi hàng đợi, xóa (không đụng file gốc).
+- **PDF dài**: màn Tách văn bản có cỡ ảnh Nhỏ/Vừa/Lớn, phím tắt (← → ↑ ↓, Space/Enter, N), nút "Đọc chữ để gợi ý"
+  (job chỉ OCR) -> trang gợi ý viền cam nét đứt + nút "Đánh dấu cả … trang gợi ý". Hồ sơ nhiều file: nhãn tên file ở
+  trang đầu mỗi file, nút "Mỗi file 1 tài liệu".
+- Ổ cứng: không sao chép file gốc; không giữ ảnh 300 DPI (chỉ JPEG ~150 DPI để xem).
 
-Hướng đề xuất (CẦN HỎI người dùng xác nhận trước khi làm, đặc biệt mục c):
-a. **Nhập cả thư mục**: chọn thư mục cha → mỗi thư mục con = 1 hồ sơ, mỗi file PDF = 1 tài liệu (ranh giới
-   theo file, không tự chia). Bảng xem trước (thư mục, mã hồ sơ sửa được, số file/trang, tích chọn từng file)
-   → tạo hàng loạt + xếp hàng xử lý (chạy qua đêm). Đường dẫn thư mục: dán đường dẫn (bản desktop Bước 7 sẽ có
-   hộp chọn thư mục). Backend đọc trực tiếp file trên máy, không cần tải lên.
-b. **1 PDF có hàng trăm tài liệu**: màn tách phải nhanh cho file dài — xem nhiều trang/lưới lớn, phím tắt,
-   app **gợi ý** trang có thể là trang đầu (có quốc hiệu/dòng "Số:") để người dùng xác nhận nhanh (không tự áp).
-c. **File gộp trong thư mục**: KHÔNG tự loại theo tên. Cách an toàn: ở bảng xem trước, người dùng bỏ tích file
-   gộp; có thể **gợi ý** "file này trùng nội dung với các file khác ghép lại" (so ảnh từng trang) nhưng để người
-   dùng quyết định. Hỏi người dùng có muốn gợi ý này không.
-d. Quy mô: hàng nghìn tài liệu × 30–60 giây AI = nhiều giờ → hàng đợi bền (sống qua khi tắt app), tiếp tục
-   khi mở lại, có thể tạm dừng; cân nhắc chế độ "chỉ luật, không AI" để nhanh; danh sách hồ sơ/tài liệu phân
-   trang; xuất Excel gộp nhiều hồ sơ một lần.
+Đã kiểm thử bằng `backend/tests/` (OCR / AI giả): mọi kiểm tra API + giao diện đạt; 1000 thư mục / 3.333 file quét 5 giây.
+**CHƯA thử** với OCR / AI thật và dữ liệu thật trên Windows: cần người dùng chạy thử với 1 lô nhỏ (vd. 10–20 thư mục)
+và báo: mã hồ sơ gợi ý có đúng ý không, gợi ý file gộp có đúng không (file gộp thật có thể khác kiểu đã thử),
+hộp chọn thư mục có hiện không, tốc độ thật.
+
+Có thể làm tiếp (hỏi người dùng trước):
+- Đổi đường dẫn thư mục gốc của cả lô khi người dùng đã chuyển thư mục sang ổ khác (hiện phải để file về chỗ cũ).
+- Màn soát nhanh cho hàng nghìn tài liệu (vd. bảng sửa trực tiếp nhiều dòng, chỉ hiện tài liệu cần kiểm tra của cả lô).
+- Chạy 2 hồ sơ song song trên máy mạnh (hiện mỗi lần 1 hồ sơ vì OCR + AI đều dùng hết CPU của ZBook).
 
 ## 5. Việc khác còn treo
 
 - **Bước 7**: đóng gói thành file cài đặt `.exe` (Electron + backend đóng gói + model), cài được trên máy
   không có mạng, có hộp chọn thư mục/file gốc của Windows.
 - `cai-dat.bat` / `mo-app.bat` chưa được chạy thử trên Windows — chờ người dùng báo kết quả.
+- Ảnh README cũ (01–11) chụp trước khi có mục "Nhập thư mục" trên thanh trên cùng — chụp lại khi tiện
+  (`backend/tests/anh_readme.js` là mẫu cách chụp có đánh số).
 - Model AI thay thế (Gemma 4 26B-A4B…) chưa so sánh; người dùng đang dùng gpt-oss-20b.
