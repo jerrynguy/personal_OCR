@@ -19,7 +19,7 @@ from app.extract import build_ho_so, extract_document
 from app.jobs import Cancelled, Job
 from app.ocr import OcrPage
 from app.pdf_render import render_pdf
-from app.segment import split_by_boundaries, split_documents
+from app.segment import split_by_boundaries
 from app.services import LlmService, OcrService
 from app.tt05 import inherited_keys
 
@@ -90,8 +90,10 @@ def _run(job: Job, info: dict, pdf: Path, ocr: OcrService, llm: LlmService) -> N
 
     # 3) Tách văn bản (tự động, hoặc theo ranh giới người dùng chỉnh)
     job.update(stage="tach_van_ban", current=0, total=0, message="")
-    starts = job.params.get("ranh_gioi")
-    docs = split_by_boundaries(pages, page_nos, starts) if starts else split_documents(pages, page_nos)
+    # Ranh giới tài liệu do NGƯỜI DÙNG đánh dấu (tab "Tách văn bản"). Không gửi -> giữ cách tách của lần
+    # xử lý trước; chưa từng xử lý -> cả file là 1 tài liệu. App KHÔNG tự đoán ranh giới.
+    starts = job.params.get("ranh_gioi") or [int(str(d["trang_pdf"]).split("-")[0]) for d in info["tai_lieu"]] or [1]
+    docs = split_by_boundaries(pages, page_nos, starts)
 
     # 4) Kết quả của LUẬT cho mọi văn bản -> lưu ngay (vài giây) để giao diện hiện và soát được luôn.
     ho_so_base = info["ho_so"]

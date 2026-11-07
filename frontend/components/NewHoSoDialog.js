@@ -9,7 +9,8 @@ import FieldForm from '@/components/FieldForm';
 
 /**
  * Tạo hồ sơ từ một file PDF: chỉ hỏi Mã hồ sơ (+ tiêu đề nếu muốn). Thông tin khác thu gọn,
- * nhớ giá trị lần trước. Bấm "Tạo và xử lý" -> tạo hồ sơ, tải PDF lên, bắt đầu xử lý.
+ * nhớ giá trị lần trước. Bấm "Tạo và tải lên" -> tạo hồ sơ, tải PDF lên, mở màn "Tách văn bản"
+ * để người dùng tự đánh dấu từng tài liệu rồi mới xử lý.
  */
 export default function NewHoSoDialog({ file, onClose }) {
   const router = useRouter();
@@ -43,8 +44,7 @@ export default function NewHoSoDialog({ file, onClose }) {
       const { ma_ho_so, tieu_de_ho_so, ...keep } = hoSo; // nhớ cho lần sau (trừ mã + tiêu đề)
       saveLast({ phong, ho_so: keep });
       await upload(`/ho-so/${id}/pdf`, file, { onProgress: setPct });
-      await api(`/ho-so/${id}/xu-ly`, { method: 'POST', body: {} });
-      router.push(`/ho-so/?id=${id}`);
+      router.push(`/ho-so/?id=${id}&tab=tach`);
     } catch (e) {
       setError(e.message + (id ? ' — hồ sơ đã được tạo, mở hồ sơ để tải PDF lại.' : ''));
       setPct(null);
@@ -125,7 +125,7 @@ export default function NewHoSoDialog({ file, onClose }) {
             Hủy
           </button>
           <button className="btn btn-primary" onClick={submit} disabled={busy || !schema}>
-            {busy && <Loader2 size={14} className="animate-spin" />} Tạo và xử lý
+            {busy && <Loader2 size={14} className="animate-spin" />} Tạo và tải lên
           </button>
         </div>
       </div>

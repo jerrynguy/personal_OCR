@@ -32,7 +32,9 @@ export default function HoSoPage() {
   const fileInput = useRef(null);
 
   useEffect(() => {
-    setId(new URLSearchParams(window.location.search).get('id'));
+    const q = new URLSearchParams(window.location.search);
+    setId(q.get('id'));
+    if (q.get('tab')) setTab(q.get('tab'));
     api('/schema').then(setSchema).catch((e) => setError(e.message));
   }, []);
 
@@ -74,7 +76,7 @@ export default function HoSoPage() {
       try {
         const res = await upload(`/ho-so/${id}/pdf`, file, { onProgress: setUploadPct });
         setWarning(res?.canh_bao || '');
-        await api(`/ho-so/${id}/xu-ly`, { method: 'POST', body: {} }); // tải xong là xử lý luôn
+        setTab('tach'); // tải xong -> người dùng tự đánh dấu từng tài liệu rồi mới xử lý
       } finally {
         setUploadPct(null);
       }
@@ -109,9 +111,9 @@ export default function HoSoPage() {
         <button className="btn btn-light" disabled={busy || uploadPct !== null} onClick={() => fileInput.current.click()}>
           <FileUp size={15} /> {info.co_pdf ? 'Đổi PDF' : 'Tải PDF lên'}
         </button>
-        {info.co_pdf && (
-          <button className="btn btn-primary" disabled={busy} onClick={() => startProcess()}>
-            <Play size={15} /> {info.tai_lieu.length ? 'Xử lý lại' : 'Xử lý'}
+        {info.co_pdf && info.tai_lieu.length > 0 && (
+          <button className="btn btn-primary" disabled={busy} onClick={() => startProcess()} title="Xử lý lại, giữ cách tách tài liệu hiện tại">
+            <Play size={15} /> Xử lý lại
           </button>
         )}
         {info.tai_lieu.length > 0 && (
@@ -173,7 +175,17 @@ export default function HoSoPage() {
           </div>
           {tab === 'soat' && <ReviewTab id={id} info={info} schema={schema} busy={busy} onChanged={load} />}
           {tab === 'thong-tin' && <InfoTab id={id} info={info} schema={schema} busy={busy} onChanged={load} />}
-          {tab === 'tach' && <SplitTab id={id} info={info} busy={busy} onProcess={startProcess} />}
+          {tab === 'tach' && (
+            <SplitTab
+              id={id}
+              info={info}
+              busy={busy}
+              onProcess={(p) => {
+                setTab('soat');
+                startProcess(p);
+              }}
+            />
+          )}
         </>
       )}
     </div>
@@ -212,7 +224,7 @@ function ReviewTab({ id, info, schema, busy, onChanged }) {
   if (!docs.length) {
     return (
       <div className="card p-10 text-center text-sm text-gray-500">
-        {busy ? 'Đang xử lý — kết quả sẽ hiện ở đây ngay khi đọc xong từng văn bản.' : 'Chưa có tài liệu. Bấm “Xử lý” để bắt đầu.'}
+        {busy ? 'Đang xử lý — kết quả sẽ hiện ở đây ngay khi đọc xong từng văn bản.' : 'Chưa xử lý. Sang tab “Tách văn bản” để đánh dấu từng tài liệu rồi bấm “Xử lý”.'}
       </div>
     );
   }
@@ -433,7 +445,12 @@ function InfoTab({ id, info, schema, busy, onChanged }) {
 
 /* ================================================================== tách văn bản */
 function SplitTab({ id, info, busy, onProcess }) {
-  const current = useMemo(() => new Set(info.tai_lieu.map((d) => pageRange(d.trang_pdf)[0])), [info.tai_lieu]);
+  const firstTime = info.tai_lieu.length === 0;
+  // Chưa xử lý: mặc định cả file là 1 tài liệu
+  const current = useMemo(
+    () => new Set(info.tai_lieu.length ? info.tai_lieu.map((d) => pageRange(d.trang_pdf)[0]) : [1]),
+    [info.tai_lieu],
+  );
   const [starts, setStarts] = useState(current);
   useEffect(() => setStarts(current), [current]);
 
@@ -450,26 +467,45 @@ function SplitTab({ id, info, busy, onProcess }) {
   let docNo = 0;
   return (
     <div className="space-y-3">
-      <div className="card flex flex-wrap items-center gap-3 p-3 text-sm">
+      {firstTime && !busy && (
+        <div className="card border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+          <b>Bước 2/2 — Tách tài liệu:</b> bấm vào <b>trang đầu của từng tài liệu</b> (viền xanh). Các trang sau nó, đến trang
+          đầu kế tiếp, thuộc cùng tài liệu. Xong bấm <b>Xử lý</b>.
+        </div>
+      )}
+      <div className="card flex flex-wrap items-center gap-2 p-3 text-sm">
         <Scissors size={16} className="text-gray-500" />
         <span className="text-gray-600">
-          Bấm vào trang để đánh dấu <b>trang đầu của một văn bản</b>. Các trang sau nó (đến trang đầu kế tiếp) thuộc cùng văn
-          bản. Hiện có <b>{starts.size}</b> văn bản.
+          <b>{starts.size}</b> tài liệu · {pages.length} trang
         </span>
-        <button className="btn btn-primary ml-auto" disabled={busy || !changed} onClick={() => onProcess({ ranh_gioi: [...starts] })}>
-          <Play size={14} /> Áp dụng và xử lý lại
+        <button className="btn btn-light" disabled={busy} onClick={() => setStarts(new Set([1]))}>
+          Cả file là 1 tài liệu
+        </button>
+        <button className="btn btn-light" disabled={busy} onClick={() => setStarts(new Set(pages))}>
+          Mỗi trang 1 tài liệu
         </button>
         <button
-          className="btn btn-light"
-          disabled={busy}
-          onClick={() => confirm('OCR lại toàn bộ hồ sơ từ đầu?') && onProcess({ ocr_lai: true })}
+          className="btn btn-primary ml-auto"
+          disabled={busy || (!firstTime && !changed)}
+          onClick={() => onProcess({ ranh_gioi: [...starts] })}
         >
-          <RotateCcw size={14} /> OCR lại từ đầu
+          <Play size={14} /> {firstTime ? 'Xử lý' : 'Áp dụng và xử lý lại'}
         </button>
+        {!firstTime && (
+          <button
+            className="btn btn-light"
+            disabled={busy}
+            onClick={() => confirm('OCR lại toàn bộ hồ sơ từ đầu?') && onProcess({ ocr_lai: true, ranh_gioi: [...starts] })}
+          >
+            <RotateCcw size={14} /> OCR lại từ đầu
+          </button>
+        )}
       </div>
-      <p className="text-xs text-gray-500">
-        Xử lý lại vẫn giữ các ô đã sửa tay và dấu “đã soát” của văn bản nào vẫn đúng các trang như cũ.
-      </p>
+      {!firstTime && (
+        <p className="text-xs text-gray-500">
+          Xử lý lại vẫn giữ các ô đã sửa tay và dấu “đã soát” của tài liệu nào vẫn đúng các trang như cũ.
+        </p>
+      )}
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-8">
         {pages.map((n) => {
           const isStart = starts.has(n);
@@ -485,7 +521,7 @@ function SplitTab({ id, info, busy, onProcess }) {
               <img src={fileUrl(`/ho-so/${id}/trang/${n}/anh?nho=1`)} alt={`Trang ${n}`} loading="lazy" className="aspect-[1/1.414] w-full bg-gray-100 object-contain" />
               <div className={`flex items-center justify-between px-2 py-1 text-xs ${isStart ? 'bg-blue-600 text-white' : 'text-gray-600'}`}>
                 <span>Trang {n}</span>
-                {isStart && <span>Văn bản {docNo}</span>}
+                {isStart && <span>Tài liệu {docNo}</span>}
               </div>
             </button>
           );
