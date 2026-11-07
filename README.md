@@ -80,11 +80,12 @@ Có thể gặp các tình huống sau — đều bình thường:
 2. **Bấm đúp `mo-app.bat`**.
 3. Một **cửa sổ đen** hiện ra, rồi **trình duyệt tự mở** phần mềm.
 
-![Trang đầu của phần mềm](docs/images/01-trang-dau.png)
-
 - **Đừng đóng cửa sổ đen** khi đang dùng — đóng nó là phần mềm tắt.
-- Lần đầu mở, chờ khoảng **30–60 giây** cho đến khi góc phải trên hiện
-  **`OCR: sẵn sàng`** và **`AI: sẵn sàng`** (màu xanh).
+- Lần đầu mở, chờ khoảng **30–60 giây** cho đến khi **góc phải trên cùng** hiện
+  **`OCR: sẵn sàng`** và **`AI: sẵn sàng`** (chữ xanh) như ảnh dưới — lúc đó phần mềm đã sẵn sàng:
+
+![Thanh trên cùng: OCR sẵn sàng, AI sẵn sàng](docs/images/00-trang-thai.png)
+
 - Dùng xong: **đóng cửa sổ đen**.
 
 ---
@@ -93,7 +94,12 @@ Có thể gặp các tình huống sau — đều bình thường:
 
 ### Bước 1 — Đưa file PDF vào
 
-Ở trang đầu: **kéo file PDF** thả vào ô ① (hoặc bấm vào ô ① / nút ② để chọn file).
+![Trang đầu: ô kéo thả PDF](docs/images/01-trang-dau.png)
+
+| Số | Ý nghĩa |
+|---|---|
+| ① | **Kéo file PDF** từ thư mục thả vào ô này (hoặc bấm vào ô để chọn file) |
+| ② | Hoặc bấm nút này để chọn file PDF |
 
 ### Bước 2 — Đặt mã hồ sơ
 
