@@ -290,4 +290,5 @@ Máy không có công cụ cài tự động (winget) thì cài tay:
 ---
 
 **Dành cho người phát triển:** kiến trúc, cách chạy từng phần bằng dòng lệnh và quá trình làm ở
-[docs/PHAT_TRIEN.md](docs/PHAT_TRIEN.md).
+[docs/PHAT_TRIEN.md](docs/PHAT_TRIEN.md). Bối cảnh, các quyết định đã chốt và việc tiếp theo ở
+[docs/BAN_GIAO.md](docs/BAN_GIAO.md).
